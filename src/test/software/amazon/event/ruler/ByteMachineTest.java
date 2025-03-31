@@ -1,5 +1,8 @@
 package software.amazon.event.ruler;
 
+import org.junit.Test;
+import software.amazon.event.ruler.input.ParseException;
+
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashSet;
@@ -9,10 +12,6 @@ import java.util.Set;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
-import software.amazon.event.ruler.input.ParseException;
-import org.junit.Test;
-
-import static software.amazon.event.ruler.PermutationsGenerator.generateAllPermutations;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
@@ -21,6 +20,7 @@ import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
+import static software.amazon.event.ruler.PermutationsGenerator.generateAllPermutations;
 
 public class ByteMachineTest {
 
@@ -111,7 +111,7 @@ public class ByteMachineTest {
     public void WHEN_NumericEQIsAdded_THEN_ItMatchesMultipleNumericForms() {
 
         ByteMachine cut = new ByteMachine();
-        cut.addPattern(Patterns.numericEquals(300.0));
+        cut.addPattern(Patterns.numericEquals("300.0"));
         String[] threeHundreds = { "300", "3.0e+2", "300.0000" };
         for (String threeHundred : threeHundreds) {
             assertEquals(1, cut.transitionOn(threeHundred).size());
@@ -121,10 +121,10 @@ public class ByteMachineTest {
     @Test
     public void WHEN_NumericRangesAreAdded_THEN_TheyWorkCorrectly() {
         double[] data = {
-                -Constants.FIVE_BILLION, -4_999_999_999.99999, -4_999_999_999.99998, -4_999_999_999.99997,
+                -5E11, -4_999_999_999.99999, -4_999_999_999.99998, -4_999_999_999.99997,
                 -999999999.99999, -999999999.99, -10000, -0.000002,
                 0, 0.000001, 3.8, 2.5e4, 999999999.999998, 999999999.999999, 1628955663d, 3206792463d, 4784629263d,
-                4_999_999_999.99997, 4_999_999_999.99998, 4_999_999_999.99999, Constants.FIVE_BILLION
+                4_999_999_999.99997, 4_999_999_999.99998, 4_999_999_999.99999, 5E11
         };
 
         // Orderly add rule and random delete rules
@@ -133,8 +133,8 @@ public class ByteMachineTest {
             int rangeIdx = 0;
             ByteMachine cut = new ByteMachine();
             for (int i = 1; i < data.length; i++) {
-                cut.addPattern(Range.lessThan(data[i]));
-                ranges[rangeIdx++] = Range.lessThan(data[i]);
+                cut.addPattern(Range.lessThan(Double.toString(data[i])));
+                ranges[rangeIdx++] = Range.lessThan(Double.toString(data[i]));
             }
             // shuffle the array
             List<Range> list = Arrays.asList(ranges);
@@ -150,9 +150,9 @@ public class ByteMachineTest {
         // first: less than
         for (int i = 1; i < data.length; i++) {
             ByteMachine cut = new ByteMachine();
-            cut.addPattern(Range.lessThan(data[i]));
+            cut.addPattern(Range.lessThan(Double.toString(data[i])));
             for (double aData : data) {
-                String num = String.format("%f", aData);
+                String num = Double.toString(aData);
                 Set<NameStateWithPattern> matched = cut.transitionOn(num);
                 if (aData < data[i]) {
                     assertEquals(num + " should match < " + data[i], 1, matched.size());
@@ -160,16 +160,16 @@ public class ByteMachineTest {
                     assertEquals(num + " should not match <" + data[i], 0, matched.size());
                 }
             }
-            cut.deletePattern(Range.lessThan(data[i]));
+            cut.deletePattern(Range.lessThan(Double.toString(data[i])));
             assertTrue("byteMachine must be empty after delete pattern", cut.isEmpty());
         }
 
         // <=
         for (int i = 1; i < data.length; i++) {
             ByteMachine cut = new ByteMachine();
-            cut.addPattern(Range.lessThanOrEqualTo(data[i]));
+            cut.addPattern(Range.lessThanOrEqualTo(Double.toString(data[i])));
             for (double aData : data) {
-                String num = String.format("%f", aData);
+                String num = Double.toString(aData);
                 Set<NameStateWithPattern> matched = cut.transitionOn(num);
                 if (aData <= data[i]) {
                     assertEquals(num + " should match <= " + data[i], 1, matched.size());
@@ -177,16 +177,16 @@ public class ByteMachineTest {
                     assertEquals(num + " should not match <=" + data[i], 0, matched.size());
                 }
             }
-            cut.deletePattern(Range.lessThanOrEqualTo(data[i]));
+            cut.deletePattern(Range.lessThanOrEqualTo(Double.toString(data[i])));
             assertTrue("byteMachine must be empty after delete pattern", cut.isEmpty());
         }
 
         // >
         for (int i = 0; i < (data.length - 1); i++) {
             ByteMachine cut = new ByteMachine();
-            cut.addPattern(Range.greaterThan(data[i]));
+            cut.addPattern(Range.greaterThan(Double.toString(data[i])));
             for (double aData : data) {
-                String num = String.format("%f", aData);
+                String num = Double.toString(aData);
                 Set<NameStateWithPattern> matched = cut.transitionOn(num);
                 if (aData > data[i]) {
                     assertEquals(num + " should match > " + data[i], 1, matched.size());
@@ -194,17 +194,17 @@ public class ByteMachineTest {
                     assertEquals(num + " should not match >" + data[i], 0, matched.size());
                 }
             }
-            cut.deletePattern(Range.greaterThan(data[i]));
+            cut.deletePattern(Range.greaterThan(Double.toString(data[i])));
             assertTrue("byteMachine must be empty after delete pattern", cut.isEmpty());
         }
 
         // >=
         for (int i = 0; i < (data.length - 1); i++) {
             ByteMachine cut = new ByteMachine();
-            Range nr = Range.greaterThanOrEqualTo(data[i]);
+            Range nr = Range.greaterThanOrEqualTo(Double.toString(data[i]));
             cut.addPattern(nr);
             for (double aData : data) {
-                String num = String.format("%f", aData);
+                String num = Double.toString(aData);
                 Set<NameStateWithPattern> matched = cut.transitionOn(num);
                 if (aData >= data[i]) {
                     assertEquals(num + " should match > " + data[i], 1, matched.size());
@@ -212,7 +212,7 @@ public class ByteMachineTest {
                     assertEquals(num + " should not match >" + data[i], 0, matched.size());
                 }
             }
-            cut.deletePattern(Range.greaterThanOrEqualTo(data[i]));
+            cut.deletePattern(Range.greaterThanOrEqualTo(Double.toString(data[i])));
             assertTrue("byteMachine must be empty after delete pattern", cut.isEmpty());
         }
 
@@ -220,10 +220,10 @@ public class ByteMachineTest {
         for (int i = 0; i < (data.length - 2); i++) {
             for (int j = i + 2; j < data.length; j++) {
                 ByteMachine cut = new ByteMachine();
-                Range r = Range.between(data[i], true, data[j], true);
+                Range r = Range.between(Double.toString(data[i]), true, Double.toString(data[j]), true);
                 cut.addPattern(r);
                 for (double aData : data) {
-                    String num = String.format("%f", aData);
+                    String num = Double.toString(aData);
                     Set<NameStateWithPattern> matched = cut.transitionOn(num);
                     if (aData > data[i] && aData < data[j]) {
                         assertEquals(1, matched.size());
@@ -240,10 +240,10 @@ public class ByteMachineTest {
         for (int i = 0; i < (data.length - 2); i++) {
             for (int j = i + 2; j < data.length; j++) {
                 ByteMachine cut = new ByteMachine();
-                Range r = Range.between(data[i], true, data[j], false);
+                Range r = Range.between(Double.toString(data[i]), true, Double.toString(data[j]), false);
                 cut.addPattern(r);
                 for (double aData : data) {
-                    String num = String.format("%f", aData);
+                    String num = Double.toString(aData);
                     Set<NameStateWithPattern> matched = cut.transitionOn(num);
                     if (aData > data[i] && aData <= data[j]) {
                         assertEquals(1, matched.size());
@@ -260,10 +260,10 @@ public class ByteMachineTest {
         for (int i = 0; i < (data.length - 2); i++) {
             for (int j = i + 2; j < data.length; j++) {
                 ByteMachine cut = new ByteMachine();
-                Range r = Range.between(data[i], false, data[j], true);
+                Range r = Range.between(Double.toString(data[i]), false, Double.toString(data[j]), true);
                 cut.addPattern(r);
                 for (double aData : data) {
-                    String num = String.format("%f", aData);
+                    String num = Double.toString(aData);
                     Set<NameStateWithPattern> matched = cut.transitionOn(num);
                     if (aData >= data[i] && aData < data[j]) {
                         assertEquals(1, matched.size());
@@ -279,10 +279,10 @@ public class ByteMachineTest {
         for (int i = 0; i < (data.length - 2); i++) {
             for (int j = i + 2; j < data.length; j++) {
                 ByteMachine cut = new ByteMachine();
-                Range r = Range.between(data[i], false, data[j], false);
+                Range r = Range.between(Double.toString(data[i]), false, Double.toString(data[j]), false);
                 cut.addPattern(r);
                 for (double aData : data) {
-                    String num = String.format("%f", aData);
+                    String num = Double.toString(aData);
                     Set<NameStateWithPattern> matched = cut.transitionOn(num);
                     if (aData >= data[i] && aData <= data[j]) {
                         assertEquals(1, matched.size());
@@ -300,7 +300,7 @@ public class ByteMachineTest {
         ByteMachine cut = new ByteMachine();
         for (int i = 0; i < (data.length - 2); i++) {
             for (int j = i + 2; j < data.length; j++) {
-                Range r = Range.between(data[i], false, data[j], false);
+                Range r = Range.between(Double.toString(data[i]), false, Double.toString(data[j]), false);
                 cut.addPattern(r);
                 for (int k = 0; k < data.length; k++) {
                     if (data[k] >= data[i] && data[k] <= data[j]) {
@@ -310,14 +310,14 @@ public class ByteMachineTest {
             }
         }
         for (int k = 0; k < data.length; k++) {
-            String num = String.format("%f", data[k]);
+            String num = Double.toString(data[k]);
             Set<NameStateWithPattern> matched = cut.transitionOn(num);
             assertEquals(containedCount[k], matched.size());
         }
         // delete the range
         for (int i = 0; i < (data.length - 2); i++) {
             for (int j = i + 2; j < data.length; j++) {
-                Range r = Range.between(data[i], false, data[j], false);
+                Range r = Range.between(Double.toString(data[i]), false, Double.toString(data[j]), false);
                 cut.deletePattern(r);
                 for (int k = 0; k < data.length; k++) {
                     if (data[k] >= data[i] && data[k] <= data[j]) {
@@ -329,7 +329,7 @@ public class ByteMachineTest {
 
         assertTrue("byteMachine must be empty after delete pattern", cut.isEmpty());
         for (int k = 0; k < data.length; k++) {
-            String num = String.format("%f", data[k]);
+            String num = Double.toString(data[k]);
             Set<NameStateWithPattern> matched = cut.transitionOn(num);
             assertEquals(containedCount[k], matched.size());
             assertEquals(0, matched.size());
@@ -340,7 +340,7 @@ public class ByteMachineTest {
         cut = new ByteMachine();
         for (int i = 0; i < (data.length - 2); i++) {
             for (int j = i + 2; j < data.length; j++) {
-                Range r = Range.between(data[i], true, data[j], true);
+                Range r = Range.between(Double.toString(data[i]), true, Double.toString(data[j]), true);
                 cut.addPattern(r);
                 for (int k = 0; k < data.length; k++) {
                     if (data[k] > data[i] && data[k] < data[j]) {
@@ -350,14 +350,14 @@ public class ByteMachineTest {
             }
         }
         for (int k = 0; k < data.length; k++) {
-            String num = String.format("%f", data[k]);
+            String num = Double.toString(data[k]);
             Set<NameStateWithPattern> matched = cut.transitionOn(num);
             assertEquals(containedCount[k], matched.size());
         }
 
         for (int i = 0; i < (data.length - 2); i++) {
             for (int j = i + 2; j < data.length; j++) {
-                Range r = Range.between(data[i], true, data[j], true);
+                Range r = Range.between(Double.toString(data[i]), true, Double.toString(data[j]), true);
                 cut.deletePattern(r);
                 for (int k = 0; k < data.length; k++) {
                     if (data[k] > data[i] && data[k] < data[j]) {
@@ -368,7 +368,7 @@ public class ByteMachineTest {
         }
         assertTrue("byteMachine must be empty after delete pattern", cut.isEmpty());
         for (int k = 0; k < data.length; k++) {
-            String num = String.format("%f", data[k]);
+            String num = Double.toString(data[k]);
             Set<NameStateWithPattern> matched = cut.transitionOn(num);
             assertEquals(containedCount[k], matched.size());
             assertEquals(0, matched.size());
@@ -424,10 +424,10 @@ public class ByteMachineTest {
     public void WHEN_AnyThingButNumberListPatternsAreAdded_THEN_TheyWork() {
 
         ByteMachine cut = new ByteMachine();
-        cut.addPattern(Patterns.anythingButNumberMatch(
-                new HashSet<>(Arrays.asList(1.11, 2d))));
-        cut.addPattern(Patterns.anythingButNumberMatch(
-                new HashSet<>(Arrays.asList(3.33, 2d))));
+        cut.addPattern(Patterns.anythingButNumbersMatch(
+                new HashSet<>(Arrays.asList("1.11", "2.0"))));
+        cut.addPattern(Patterns.anythingButNumbersMatch(
+                new HashSet<>(Arrays.asList("3.33", "2.0"))));
         String[] notFoos = { "0", "1.1", "5", "9", "112", "fo", "foobar" };
         for (String notFoo : notFoos) {
             assertEquals(2, cut.transitionOn(notFoo).size());
@@ -438,8 +438,8 @@ public class ByteMachineTest {
         assertEquals(2, cut.transitionOn("1").size());
         assertEquals(0, cut.transitionOn("2").size());
 
-        cut.deletePattern(Patterns.anythingButNumberMatch(
-                new HashSet<>(Arrays.asList(1.11, 2d))));
+        cut.deletePattern(Patterns.anythingButNumbersMatch(
+                new HashSet<>(Arrays.asList("1.11", "2.0"))));
         for (String notFoo : notFoos) {
             assertEquals(1, cut.transitionOn(notFoo).size());
         }
@@ -449,8 +449,8 @@ public class ByteMachineTest {
         assertEquals(0, cut.transitionOn("2").size());
         assertFalse(cut.isEmpty());
 
-        cut.deletePattern(Patterns.anythingButNumberMatch(
-                new HashSet<>(Arrays.asList(3.33, 2d))));
+        cut.deletePattern(Patterns.anythingButNumbersMatch(
+                new HashSet<>(Arrays.asList("3.33", "2.0"))));
         for (String notFoo : notFoos) {
             assertEquals(0, cut.transitionOn(notFoo).size());
         }
@@ -460,8 +460,8 @@ public class ByteMachineTest {
         assertEquals(0, cut.transitionOn("2").size());
         assertTrue(cut.isEmpty());
 
-        cut.addPattern(Patterns.anythingButNumberMatch(
-                new HashSet<>(Arrays.asList(3.33, 2d))));
+        cut.addPattern(Patterns.anythingButNumbersMatch(
+                new HashSet<>(Arrays.asList("3.33", "2.0"))));
         assertEquals(0, cut.transitionOn("2").size());
         assertEquals(0, cut.transitionOn("3.33").size());
         assertEquals(1, cut.transitionOn("2022").size());
@@ -481,19 +481,19 @@ public class ByteMachineTest {
         p = Patterns.anythingButMatch("foo");
         cut.addPattern(p);
 
-        p = Patterns.numericEquals(3);
+        p = Patterns.numericEquals("3");
         cut.addPattern(p);
-        p = Range.lessThan(3);
+        p = Range.lessThan("3");
         cut.addPattern(p);
-        p = Range.greaterThan(3);
+        p = Range.greaterThan("3");
         cut.addPattern(p);
-        p = Range.lessThanOrEqualTo(3);
+        p = Range.lessThanOrEqualTo("3");
         cut.addPattern(p);
-        p = Range.greaterThanOrEqualTo(3);
+        p = Range.greaterThanOrEqualTo("3");
         cut.addPattern(p);
-        p = Range.between(0, false, 8, false);
+        p = Range.between("0", false, "8", false);
         cut.addPattern(p);
-        p = Range.between(0, true, 8, true);
+        p = Range.between("0", true, "8", true);
         cut.addPattern(p);
 
         String[] notFoos =    { "bar", "baz", "for", "too", "fro", "fo", "foobar" };
@@ -524,7 +524,7 @@ public class ByteMachineTest {
     @Test
     public void WHEN_NumericEQIsRequested_THEN_DifferentNumberSyntaxesMatch() {
         ByteMachine cut = new ByteMachine();
-        cut.addPattern(Patterns.numericEquals(300.0));
+        cut.addPattern(Patterns.numericEquals("300.0"));
         assertEquals(1, cut.transitionOn("300").size());
         assertEquals(1, cut.transitionOn("300.0000").size());
         assertEquals(1, cut.transitionOn("3.0e+2").size());
@@ -532,8 +532,8 @@ public class ByteMachineTest {
 
     @Test
     public void RangePatternEqual() {
-        double[] data = {
-                1234, 5678.1234, 7890
+        String[] data = {
+                "1234", "5678.1234", "7890"
         };
 
         NameState ns = new NameState();
@@ -558,8 +558,8 @@ public class ByteMachineTest {
     public void WHEN_NumericRangesAdded_THEN_TheyWorkCorrectly_THEN_MatchNothing_AFTER_Removed() {
 
         ByteMachine cut = new ByteMachine();
-        Range r = Range.between(0, true, 4, false);
-        Range r1 = Range.between(1, true, 3, false);
+        Range r = Range.between("0", true, "4", false);
+        Range r1 = Range.between("1", true, "3", false);
         cut.addPattern(r);
         cut.addPattern(r1);
 
@@ -577,7 +577,7 @@ public class ByteMachineTest {
     public void WHEN_NumericRangesAddedMultipleTime_BecomeEmptyWithOneDelete() {
         ByteMachine cut = new ByteMachine();
         String num = String.format("%f", 2.0);
-        Range r = Range.between(0, true, 4, false);
+        Range r = Range.between("0", true, "4", false);
         Range r1 = (Range) r.clone();
         Range r2 = (Range) r1.clone();
         Range r3 = (Range) r2.clone();
@@ -604,14 +604,14 @@ public class ByteMachineTest {
 
         // Range pattern
         double[] data = {
-                -Constants.FIVE_BILLION, -4_999_999_999.99999, -4_999_999_999.99998, -4_999_999_999.99997,
+                -5E11, -4_999_999_999.99999, -4_999_999_999.99998, -4_999_999_999.99997,
                 -999999999.99999, -999999999.99, -10000, -0.000002,
                 0, 0.000001, 3.8, 2.5e4, 999999999.999998, 999999999.999999,
-                4_999_999_999.99997, 4_999_999_999.99998, 4_999_999_999.99999, Constants.FIVE_BILLION
+                4_999_999_999.99997, 4_999_999_999.99998, 4_999_999_999.99999, 5E11
         };
 
         ByteMachine cut = new ByteMachine();
-        Range r = Range.between(0, true, 4, false);
+        Range r = Range.between("0", true, "4", false);
         assertNull("must NOT find the range pattern", cut.findPattern(r));
         cut.addPattern(r);
         assertNotNull("must find the range pattern", cut.findPattern(r));
@@ -619,39 +619,39 @@ public class ByteMachineTest {
         for (int i = 0; i < 1000; i++) {
             for (int j = i + 1; j < 1001; j++) {
                 if (i == 0 && j == 4) {
-                    assertNotNull("must find the range pattern", cut.findPattern(Range.between(i, true, j, false)));
+                    assertNotNull("must find the range pattern", cut.findPattern(Range.between(Double.toString(i), true, Double.toString(j), false)));
                 } else {
-                    assertNull("must NOT find the range pattern", cut.findPattern(Range.between(i, true, j, false)));
+                    assertNull("must NOT find the range pattern", cut.findPattern(Range.between(Double.toString(i), true, Double.toString(j), false)));
                 }
             }
         }
 
         for (int i = 1; i < data.length; i++) {
             // first: <
-            assertNull("must NOT find the range pattern", cut.findPattern(Range.lessThan(data[i])));
+            assertNull("must NOT find the range pattern", cut.findPattern(Range.lessThan(Double.toString(data[i]))));
             // <=
-            assertNull("must NOT find the range pattern", cut.findPattern(Range.lessThanOrEqualTo(data[i])));
+            assertNull("must NOT find the range pattern", cut.findPattern(Range.lessThanOrEqualTo(Double.toString(data[i]))));
         }
         for (int i = 0; i < data.length-1; i++) {
             // >
-            assertNull("must NOT find the range pattern", cut.findPattern(Range.greaterThan(data[i])));
+            assertNull("must NOT find the range pattern", cut.findPattern(Range.greaterThan(Double.toString(data[i]))));
             // >=
-            assertNull("must NOT find the range pattern", cut.findPattern(Range.greaterThanOrEqualTo(data[i])));
+            assertNull("must NOT find the range pattern", cut.findPattern(Range.greaterThanOrEqualTo(Double.toString(data[i]))));
         }
 
         for (int i = 0; i < (data.length - 2); i++) {
             for (int j = i + 2; j < data.length; j++) {
                 // open/open range
-                assertNull("must NOT find the range pattern", cut.findPattern(Range.between(data[i], true, data[j], true)));
+                assertNull("must NOT find the range pattern", cut.findPattern(Range.between(Double.toString(data[i]), true, Double.toString(data[j]), true)));
                 // open/closed range
-                assertNull("must NOT find the range pattern", cut.findPattern(Range.between(data[i], true, data[j], false)));
+                assertNull("must NOT find the range pattern", cut.findPattern(Range.between(Double.toString(data[i]), true, Double.toString(data[j]), false)));
             }
         }
 
         for (int i = 0; i < (data.length - 2); i++) {
             for (int j = i + 2; j < data.length; j++) {
                 // overlap range
-                assertNull("must NOT find the range pattern", cut.findPattern(Range.between(data[i], true, data[j], true)));
+                assertNull("must NOT find the range pattern", cut.findPattern(Range.between(Double.toString(data[i]), true, Double.toString(data[j]), true)));
             }
         }
 
@@ -659,22 +659,22 @@ public class ByteMachineTest {
         cut.addPattern(Patterns.exactMatch("test"));
         cut.addPattern(Patterns.prefixMatch("test"));
         cut.addPattern(Patterns.anythingButMatch("test"));
-        cut.addPattern(Patterns.numericEquals(1.11));
+        cut.addPattern(Patterns.numericEquals("1.11"));
         assertNotNull("must find the pattern", cut.findPattern(Patterns.exactMatch("test")));
         assertNotNull("must find the pattern", cut.findPattern(Patterns.prefixMatch("test")));
         assertNotNull("must find the pattern", cut.findPattern(Patterns.anythingButMatch("test")));
-        assertNotNull("must find the pattern", cut.findPattern(Patterns.numericEquals(1.11)));
+        assertNotNull("must find the pattern", cut.findPattern(Patterns.numericEquals("1.11")));
 
         assertNull("must NOT find the pattern", cut.findPattern(Patterns.exactMatch("test1")));
         assertNull("must NOT find the pattern", cut.findPattern(Patterns.prefixMatch("test1")));
         assertNull("must NOT find the pattern", cut.findPattern(Patterns.anythingButMatch("test1")));
-        assertNull("must NOT find the pattern", cut.findPattern(Patterns.numericEquals(1.111)));
+        assertNull("must NOT find the pattern", cut.findPattern(Patterns.numericEquals("1.111")));
 
         cut.deletePattern(Patterns.exactMatch("test"));
         cut.deletePattern(Patterns.prefixMatch("test"));
         cut.deletePattern(Patterns.anythingButMatch("test"));
-        cut.deletePattern(Patterns.numericEquals(1.11));
-        cut.deletePattern(Range.between(0, true, 4, false));
+        cut.deletePattern(Patterns.numericEquals("1.11"));
+        cut.deletePattern(Range.between("0", true, "4", false));
         assertTrue("cut is empty", cut.isEmpty());
     }
 
@@ -747,7 +747,7 @@ public class ByteMachineTest {
     public void testNonNumericValue_DoesNotMatchNumericPattern() {
         ByteMachine cut = new ByteMachine();
         String val = "0A,";
-        cut.addPattern(Range.greaterThanOrEqualTo(-1e9));
+        cut.addPattern(Range.greaterThanOrEqualTo("-1e9"));
 
         Set<NameStateWithPattern> matches = cut.transitionOn(val);
         assertTrue(matches.isEmpty());
@@ -886,7 +886,7 @@ public class ByteMachineTest {
 
     @Test
     public void testEqualsIgnoreCasePatternWithExactMatchAsPrefix() {
-        String[] noMatches = new String[] { "", "ja", "JA", "JAV", "javax" };
+        String[] noMatches = new String[] { "", "j", "JA", "JAV", "javax" };
         testPatternPermutations(noMatches,
                 new PatternMatch(Patterns.equalsIgnoreCaseMatch("jAVa"),
                         "java", "jAVa", "JavA", "JAVA"),
@@ -1072,6 +1072,504 @@ public class ByteMachineTest {
     }
 
     @Test
+    public void testPrefixEqualsIgnoreCasePattern() {
+        String[] noMatches = new String[] { "", "JAV", "jav", "ava", "AVA", "xJAVA", "xjava", "jAV", "AVa" };
+        testPatternPermutations(noMatches,
+                new PatternMatch(Patterns.prefixEqualsIgnoreCaseMatch("jAVa"),
+                        "java", "JAVA", "Java", "jAvA", "jAVa", "JaVa", "JAVAx", "javax", "JaVaaaaaaa")
+        );
+    }
+
+    @Test
+    public void testPrefixEqualsIgnoreCasePatternWithExactMatchAsPrefix() {
+        String[] noMatches = new String[] { "", "jA", "Ja", "JAV", "jav", "ava", "AVA", "xJAVA", "xjava", "jAV", "AVa" };
+        testPatternPermutations(noMatches,
+                new PatternMatch(Patterns.prefixEqualsIgnoreCaseMatch("jAVa"),
+                        "java", "JAVA", "Java", "jAvA", "jAVa", "JaVa", "JAVAx", "javax", "JaVaaaaaaa"),
+                new PatternMatch(Patterns.exactMatch("ja"),
+                        "ja")
+        );
+    }
+
+    @Test
+    public void testPrefixEqualsIgnoreCasePatternWithExactMatchAsPrefixLengthOneLess() {
+        String[] noMatches = new String[] { "", "JAV" };
+        testPatternPermutations(noMatches,
+                new PatternMatch(Patterns.prefixEqualsIgnoreCaseMatch("jAVa"),
+                        "java", "jAVa", "JavA", "JAVA", "javax"),
+                new PatternMatch(Patterns.exactMatch("jav"),
+                        "jav")
+        );
+    }
+
+    @Test
+    public void testPrefixEqualsIgnoreCasePatternNonLetterCharacters() {
+        String[] noMatches = new String[] { "", "2#$^sS我ŐaBc", "1#%^sS我ŐaBc", "1#$^sS大ŐaBc", "1#$^sS我ŏaBc" };
+        testPatternPermutations(noMatches,
+                new PatternMatch(Patterns.prefixEqualsIgnoreCaseMatch("1#$^sS我ŐaBc"),
+                        "1#$^sS我ŐaBcd", "1#$^Ss我ŐAbCaaaaa", "1#$^Ss我ŐAbC我")
+        );
+    }
+
+    @Test
+    public void testPrefixEqualsIgnoreCaseLowerCaseCharacterWithDifferentByteLengthForUpperCase() {
+        String[] noMatches = new String[] { "", "12a34", "12A34" };
+        testPatternPermutations(noMatches,
+                new PatternMatch(Patterns.prefixEqualsIgnoreCaseMatch("12ⱥ34"),
+                        "12ⱥ34", "12Ⱥ34", "12ⱥ3478", "12Ⱥ34aa", "12Ⱥ34ȺȺ")
+        );
+    }
+
+    @Test
+    public void testPrefixEqualsIgnoreCaseUpperCaseCharacterWithDifferentByteLengthForLowerCase() {
+        String[] noMatches = new String[] { "", "12a34", "12A34" };
+        testPatternPermutations(noMatches,
+                new PatternMatch(Patterns.prefixEqualsIgnoreCaseMatch("12Ⱥ34"),
+                        "12ⱥ34", "12Ⱥ34", "12ⱥ3478", "12Ⱥ34aa", "12Ⱥ34ⱥȺ")
+        );
+    }
+
+    @Test
+    public void testPrefixEqualsIgnoreCaseLowerCaseCharacterWithDifferentByteLengthForUpperCaseAtStartOfString() {
+        String[] noMatches = new String[] { "", "a12", "A12" };
+        testPatternPermutations(noMatches,
+                new PatternMatch(Patterns.prefixEqualsIgnoreCaseMatch("ⱥ12"),
+                        "ⱥ12", "Ⱥ12", "ⱥ1234", "Ⱥ12ab", "ⱥ12ⱥⱥ", "Ⱥ12ⱥⱥ")
+        );
+    }
+
+    @Test
+    public void testPrefixEqualsIgnoreCaseUpperCaseCharacterWithDifferentByteLengthForLowerCaseAtStartOfString() {
+        String[] noMatches = new String[] { "", "a12", "A12" };
+        testPatternPermutations(noMatches,
+                new PatternMatch(Patterns.prefixEqualsIgnoreCaseMatch("Ⱥ12"),
+                        "ⱥ12", "Ⱥ12", "ⱥ1234", "Ⱥ12ab", "ⱥ12ⱥⱥ", "Ⱥ12ⱥⱥ")
+        );
+    }
+
+
+    @Test
+    public void testPrefixEqualsIgnoreCaseLowerCaseCharacterWithDifferentByteLengthForUpperCaseAtEndOfString() {
+        String[] noMatches = new String[] { "", "12a", "12A" };
+        testPatternPermutations(noMatches,
+                new PatternMatch(Patterns.prefixEqualsIgnoreCaseMatch("12ⱥ"),
+                        "12ⱥ", "12Ⱥ", "12ⱥⱥⱥⱥⱥ", "12ȺȺȺȺ", "12ȺⱥⱥȺⱥⱥȺ")
+        );
+    }
+
+    @Test
+    public void testPrefixEqualsIgnoreCaseUpperCaseCharacterWithDifferentByteLengthForLowerCaseAtEndOfString() {
+        String[] noMatches = new String[] { "", "12a", "12A" };
+        testPatternPermutations(noMatches,
+                new PatternMatch(Patterns.prefixEqualsIgnoreCaseMatch("12Ⱥ"),
+                        "12ⱥ", "12Ⱥ", "12ⱥⱥⱥⱥⱥ", "12ȺȺȺȺ", "12ȺⱥⱥȺⱥⱥȺ")
+        );
+    }
+
+    @Test
+    public void testPrefixEqualsIgnoreCaseManyCharactersWithDifferentByteLengthForLowerCaseAndUpperCase() {
+        String[] noMatches = new String[] { "", "Ϋ́ȿⱯΐΫ́Η͂k", "ΰⱾɐΪ́ΰῆK" };
+        testPatternPermutations(noMatches,
+                new PatternMatch(Patterns.prefixEqualsIgnoreCaseMatch("ΰɀɐΐΰῆK"),
+                        "Ϋ́ɀⱯΐΫ́Η͂k", "ΰⱿɐΪ́ΰῆK", "Ϋ́ⱿⱯΪ́Ϋ́ῆk", "ΰɀɐΐΰΗ͂K", "Ϋ́ɀⱯΐΫ́Η͂kÄ́ɀⱯΐΫ́Η͂", "ΰⱿɐΪ́ΰῆKä́ɀⱯΐΫ́Η͂")
+        );
+    }
+
+    @Test
+    public void testPrefixEqualsIgnoreCaseMiddleCharacterWithDifferentByteLengthForLowerCaseAndUpperCaseWithPrefixMatches() {
+        String[] noMatches = new String[] { "", "a", "aa" };
+        testPatternPermutations(noMatches,
+                new PatternMatch(Patterns.prefixEqualsIgnoreCaseMatch("abȺcd"),
+                        "abⱥcd", "abȺcd", "abⱥcdea", "abȺcdCCC"),
+                new PatternMatch(Patterns.prefixMatch("ab"),
+                        "ab", "abⱥ", "abȺ", "abⱥcd", "abȺcd", "abⱥcdea", "abȺcdCCC"),
+                new PatternMatch(Patterns.prefixMatch("abⱥ"),
+                        "abⱥ", "abⱥcd", "abⱥcdea"),
+                new PatternMatch(Patterns.prefixMatch("abȺ"),
+                        "abȺ", "abȺcd", "abȺcdCCC")
+        );
+    }
+
+    @Test
+    public void testPrefixEqualsIgnoreCaseLastCharacterWithDifferentByteLengthForLowerCaseAndUpperCaseWithPrefixMatches() {
+        String[] noMatches = new String[] { "", "ab" };
+        testPatternPermutations(noMatches,
+                new PatternMatch(Patterns.prefixEqualsIgnoreCaseMatch("abcȺ"),
+                        "abcⱥ", "abcȺ", "abcⱥaa", "abcȺbb"),
+                new PatternMatch(Patterns.prefixMatch("abc"),
+                        "abc", "abca", "abcA", "abcⱥ", "abcȺ", "abcⱥaa", "abcȺbb"),
+                new PatternMatch(Patterns.prefixMatch("abca"),
+                        "abca"),
+                new PatternMatch(Patterns.prefixMatch("abcA"),
+                        "abcA")
+        );
+    }
+
+    @Test
+    public void testPrefixEqualsIgnoreCaseFirstCharacterWithDifferentByteLengthForCasesWithLowerCasePrefixMatch() {
+        String[] noMatches = new String[] { "", "ⱥ", "Ⱥ", "c" };
+        testPatternPermutations(noMatches,
+                new PatternMatch(Patterns.prefixEqualsIgnoreCaseMatch("ⱥc"),
+                        "ⱥc", "Ⱥc", "ⱥcd"),
+                new PatternMatch(Patterns.prefixMatch("ⱥc"),
+                        "ⱥc", "ⱥcd")
+        );
+    }
+
+
+    @Test
+    public void testPrefixEqualsIgnoreCaseFirstCharacterWithDifferentByteLengthForCasesWithUpperCasePrefixMatch() {
+        String[] noMatches = new String[] { "", "ⱥ", "Ⱥ", "c" };
+        testPatternPermutations(noMatches,
+                new PatternMatch(Patterns.prefixEqualsIgnoreCaseMatch("Ⱥc"),
+                        "ⱥc", "Ⱥc", "ⱥcdddd", "Ⱥcd"),
+                new PatternMatch(Patterns.prefixMatch("Ⱥc"),
+                        "Ⱥc", "Ⱥcd")
+        );
+    }
+
+    @Test
+    public void testPrefixEqualsIgnoreCaseWhereLowerAndUpperCaseAlreadyExist() {
+        String[] noMatches = new String[] { "", "a", "b" };
+        testPatternPermutations(noMatches,
+                new PatternMatch(Patterns.prefixMatch("ab"),
+                        "ab", "abc", "abC"),
+                new PatternMatch(Patterns.prefixMatch("AB"),
+                        "AB", "ABC", "ABc"),
+                new PatternMatch(Patterns.prefixEqualsIgnoreCaseMatch("ab"),
+                        "ab", "AB", "Ab", "aB", "ab", "abc", "abC", "AB", "ABC", "ABc")
+        );
+    }
+
+
+
+    @Test
+    public void testPrefixEqualsIgnoreCasePatternMultipleWithMultipleExactMatch() {
+        String[] noMatches = new String[] { "", "he", "HEL", "hell", "HELL"};
+        testPatternPermutations(noMatches,
+                new PatternMatch(Patterns.prefixEqualsIgnoreCaseMatch("hElLo"),
+                        "hello", "hellox", "HeLlOx", "hElLoX", "HELLOX", "HELLO", "HeLlO", "hElLo"),
+                new PatternMatch(Patterns.prefixEqualsIgnoreCaseMatch("HeLlOX"),
+                        "hellox", "HELLOX", "HeLlOx", "hElLoX"),
+                new PatternMatch(Patterns.exactMatch("hello"),
+                        "hello"),
+                new PatternMatch(Patterns.exactMatch("HELLO"),
+                        "HELLO"),
+                new PatternMatch(Patterns.exactMatch("hel"),
+                        "hel")
+        );
+    }
+
+    @Test
+    public void testPrefixEqualsIgnoreCasePatternMultipleWithMultipleEqualsIgnoreCaseMatch() {
+        String[] noMatches = new String[] { "", "he", "hell", "HELL" };
+        testPatternPermutations(noMatches,
+                new PatternMatch(Patterns.prefixEqualsIgnoreCaseMatch("hElLo"),
+                        "hello", "hellox", "HELLOX", "HeLlOx", "hElLoX", "helloxx"),
+                new PatternMatch(Patterns.prefixEqualsIgnoreCaseMatch("HeLlOX"),
+                        "hellox", "HELLOX", "HeLlOx", "hElLoX", "helloxx"),
+                new PatternMatch(Patterns.equalsIgnoreCaseMatch("hello"),
+                        "hello"),
+                new PatternMatch(Patterns.equalsIgnoreCaseMatch("hel"),
+                        "hel", "HEL")
+        );
+    }
+
+    @Test
+    public void testPrefixEqualsIgnoreCaseWithExactMatchLeadingCharacterSameLowerAndUpperCase() {
+        String[] noMatches = new String[] { "", "!", "!A", "a", "A", "b", "B" };
+        testPatternPermutations(noMatches,
+                new PatternMatch(Patterns.prefixEqualsIgnoreCaseMatch("!b"),
+                        "!b", "!B", "!bcd", "!BCdE"),
+                new PatternMatch(Patterns.exactMatch("!a"),
+                        "!a")
+        );
+    }
+
+    @Test
+    public void testPrefixEqualsIgnoreCaseWithPrefixMatchLeadingCharacterSameLowerAndUpperCase() {
+        String[] noMatches = new String[] { "", "!", "!A", "a", "A", "b", "B" };
+        testPatternPermutations(noMatches,
+                new PatternMatch(Patterns.prefixEqualsIgnoreCaseMatch("!b"),
+                        "!b", "!B", "!bcd", "!BCdE"),
+                new PatternMatch(Patterns.prefixMatch("!a"),
+                        "!a")
+        );
+    }
+
+    @Test
+    public void testSuffixEqualsIgnoreCasePattern() {
+        String[] noMatches = new String[] { "", "JAV", "jav", "ava", "AVA", "JAVAx", "javax", "jAV", "AVa" };
+        testPatternPermutations(noMatches,
+                new PatternMatch(Patterns.suffixEqualsIgnoreCaseMatch("jAVa"),
+                        "java", "JAVA", "Java", "jAvA", "jAVa", "JaVa", "helloJAVA", "hijava", "jjjjjjJaVa")
+        );
+    }
+
+    @Test
+    public void testSuffixEqualsIgnoreCasePatternWithReverseExactMatchAsSuffix() {
+        String[] noMatches = new String[] { "", "jA", "Ja", "JAV", "jav", "ava", "AVA", "JAVAx", "javax", "jAV", "AVa" };
+        testPatternPermutations(noMatches,
+                new PatternMatch(Patterns.suffixEqualsIgnoreCaseMatch("jAVa"),
+                        "java", "JAVA", "Java", "jAvA", "jAVa", "JaVa", "xJAVA", "xjava", "jjJJJJaVa"),
+                new PatternMatch(Patterns.exactMatch("av"),
+                        "av")
+        );
+    }
+
+    @Test
+    public void testSuffixEqualsIgnoreCasePatternWithReverseExactMatchAsSuffixLengthOneLess() {
+        String[] noMatches = new String[] { "", "JAV" };
+        testPatternPermutations(noMatches,
+                new PatternMatch(Patterns.suffixEqualsIgnoreCaseMatch("jAVa"),
+                        "java", "jAVa", "JavA", "JAVA", "xjava"),
+                new PatternMatch(Patterns.exactMatch("ava"),
+                        "ava")
+        );
+    }
+
+    @Test
+    public void testSuffixEqualsIgnoreCasePatternNonLetterCharacters() {
+        String[] noMatches = new String[] { "", "1#$^sS我ŐaBd", "1#%^sS我ŐaBc", "1#$^sS大ŐaBc", "1#$^sS我ŏaBc" };
+        testPatternPermutations(noMatches,
+                new PatternMatch(Patterns.suffixEqualsIgnoreCaseMatch("1#$^sS我ŐaBc"),
+                        "aa1#$^sS我ŐaBc", "1111#$^Ss我ŐAbC", "我我1#$^Ss我ŐAbC")
+        );
+    }
+
+    @Test
+    public void testSuffixEqualsIgnoreCaseLowerCaseCharacterWithDifferentByteLengthForUpperCase() {
+        String[] noMatches = new String[] { "", "12a34", "12A34" };
+        testPatternPermutations(noMatches,
+                new PatternMatch(Patterns.suffixEqualsIgnoreCaseMatch("12ⱥ34"),
+                        "12ⱥ34", "12Ⱥ34", "7812ⱥ34", "aa12Ⱥ34", "ȺȺ12Ⱥ34")
+        );
+    }
+
+    @Test
+    public void testSuffixEqualsIgnoreCaseUpperCaseCharacterWithDifferentByteLengthForLowerCase() {
+        String[] noMatches = new String[] { "", "12a34", "12A34" };
+        testPatternPermutations(noMatches,
+                new PatternMatch(Patterns.suffixEqualsIgnoreCaseMatch("12Ⱥ34"),
+                        "12ⱥ34", "12Ⱥ34", "7812ⱥ34", "aa12Ⱥ34", "ⱥȺ12Ⱥ34")
+        );
+    }
+
+    @Test
+    public void testSuffixEqualsIgnoreCaseLowerCaseCharacterWithDifferentByteLengthForUpperCaseAtStartOfString() {
+        String[] noMatches = new String[] { "", "a12", "A12" };
+        testPatternPermutations(noMatches,
+                new PatternMatch(Patterns.suffixEqualsIgnoreCaseMatch("ⱥ12"),
+                        "ⱥ12", "Ⱥ12", "34ⱥ12", "abȺ12", "ⱥⱥⱥ12", "ⱥⱥȺ12")
+        );
+    }
+
+    @Test
+    public void testSuffixEqualsIgnoreCaseUpperCaseCharacterWithDifferentByteLengthForLowerCaseAtStartOfString() {
+        String[] noMatches = new String[] { "", "a12", "A12" };
+        testPatternPermutations(noMatches,
+                new PatternMatch(Patterns.suffixEqualsIgnoreCaseMatch("Ⱥ12"),
+                        "ⱥ12", "Ⱥ12", "34ⱥ12", "abȺ12", "ⱥⱥⱥ12", "ⱥⱥȺ12")
+        );
+    }
+
+    @Test
+    public void testSuffixEqualsIgnoreCaseLowerCaseCharacterWithDifferentByteLengthForUpperCaseAtEndOfString() {
+        String[] noMatches = new String[] { "", "12a", "12A" };
+        testPatternPermutations(noMatches,
+                new PatternMatch(Patterns.suffixEqualsIgnoreCaseMatch("12ⱥ"),
+                        "12ⱥ", "12Ⱥ", "ⱥⱥⱥⱥ12ⱥ", "ȺȺȺ12Ⱥ", "ⱥⱥȺⱥⱥȺ12Ⱥ")
+        );
+    }
+
+    @Test
+    public void testSuffixEqualsIgnoreCaseUpperCaseCharacterWithDifferentByteLengthForLowerCaseAtEndOfString() {
+        String[] noMatches = new String[] { "", "12a", "12A" };
+        testPatternPermutations(noMatches,
+                new PatternMatch(Patterns.suffixEqualsIgnoreCaseMatch("12Ⱥ"),
+                        "12ⱥ", "12Ⱥ", "ⱥⱥⱥⱥ12ⱥ", "ȺȺȺ12Ⱥ", "ⱥⱥȺⱥⱥȺ12Ⱥ")
+        );
+    }
+
+    @Test
+    public void testSuffixEqualsIgnoreCaseManyCharactersWithDifferentByteLengthForLowerCaseAndUpperCase() {
+        String[] noMatches = new String[] { "", "Ϋ́ȿⱯΐΫ́Η͂k", "ΰⱾɐΪ́ΰῆK" };
+        testPatternPermutations(noMatches,
+                new PatternMatch(Patterns.suffixEqualsIgnoreCaseMatch("ΰɀɐΐΰῆK"),
+                        "Ϋ́ɀⱯΐΫ́Η͂k", "ΰⱿɐΪ́ΰῆK", "Ϋ́ⱿⱯΪ́Ϋ́ῆk", "ΰɀɐΐΰΗ͂K", "Ä́ɀⱯΐΫ́Η͂Ϋ́ɀⱯΐΫ́Η͂k", "ä́ɀⱯΐΫ́Η͂ΰⱿɐΪ́ΰῆK")
+        );
+    }
+
+    @Test
+    public void testSuffixEqualsIgnoreCaseMiddleCharacterWithDifferentByteLengthForLowerCaseAndUpperCaseWithSuffixMatches() {
+        String[] noMatches = new String[] { "", "a", "aa" };
+        testPatternPermutations(noMatches,
+                new PatternMatch(Patterns.suffixEqualsIgnoreCaseMatch("abȺcd"),
+                        "abⱥcd", "abȺcd", "eaabⱥcd", "CCCabȺcd"),
+                new PatternMatch(Patterns.suffixMatch("cd"),
+                        "cd", "ⱥcd", "Ⱥcd", "abⱥcd", "abȺcd", "abⱥcd", "eaabⱥcd", "CCCabȺcd"),
+                new PatternMatch(Patterns.suffixMatch("ⱥcd"),
+                        "ⱥcd", "abⱥcd", "eaabⱥcd"),
+                new PatternMatch(Patterns.suffixMatch("Ⱥcd"),
+                        "Ⱥcd", "abȺcd", "CCCabȺcd")
+        );
+    }
+
+    @Test
+    public void testSuffixEqualsIgnoreCaseLastCharacterWithDifferentByteLengthForLowerCaseAndUpperCaseWithSuffixMatches() {
+        String[] noMatches = new String[] { "", "ab" };
+        testPatternPermutations(noMatches,
+                new PatternMatch(Patterns.suffixEqualsIgnoreCaseMatch("abcȺ"),
+                        "abcⱥ", "abcȺ", "AbcȺ", "aaabcⱥ", "bbabcȺ"),
+                new PatternMatch(Patterns.suffixMatch("bcȺ"),
+                        "bcȺ", "abcȺ", "AbcȺ", "ⱥbcȺ", "bbabcȺ"),
+                new PatternMatch(Patterns.suffixMatch("abca"),
+                        "abca"),
+                new PatternMatch(Patterns.suffixMatch("abcA"),
+                        "abcA")
+        );
+    }
+
+    @Test
+    public void testSuffixEqualsIgnoreCaseFirstCharacterWithDifferentByteLengthForCasesWithLowerCaseSuffixMatch() {
+        String[] noMatches = new String[] { "", "ⱥ", "Ⱥ", "c" };
+        testPatternPermutations(noMatches,
+                new PatternMatch(Patterns.suffixEqualsIgnoreCaseMatch("ⱥc"),
+                        "ⱥc", "Ⱥc", "dⱥc"),
+                new PatternMatch(Patterns.suffixMatch("ⱥc"),
+                        "ⱥc", "dⱥc")
+        );
+    }
+
+    @Test
+    public void testSuffixEqualsIgnoreCaseFirstCharacterWithDifferentByteLengthForCasesWithUpperCaseSuffixMatch() {
+        String[] noMatches = new String[] { "", "ⱥ", "Ⱥ", "c" };
+        testPatternPermutations(noMatches,
+                new PatternMatch(Patterns.suffixEqualsIgnoreCaseMatch("Ⱥc"),
+                        "ⱥc", "Ⱥc", "ddddⱥc", "dȺc"),
+                new PatternMatch(Patterns.suffixMatch("Ⱥc"),
+                        "Ⱥc", "dȺc")
+        );
+    }
+
+    @Test
+    public void testSuffixEqualsIgnoreCaseWhereLowerAndUpperCaseAlreadyExist() {
+        String[] noMatches = new String[] { "", "a", "b" };
+        testPatternPermutations(noMatches,
+                new PatternMatch(Patterns.suffixMatch("ab"),
+                        "ab", "cab", "Cab"),
+                new PatternMatch(Patterns.suffixMatch("AB"),
+                        "AB", "CAB", "cAB"),
+                new PatternMatch(Patterns.suffixEqualsIgnoreCaseMatch("ab"),
+                        "ab", "AB", "Ab", "aB", "ab", "cab", "Cab", "AB", "CAB", "cAB")
+        );
+    }
+
+    @Test
+    public void testSuffixEqualsIgnoreCasePatternMultipleWithMultipleExactMatch() {
+        String[] noMatches = new String[] { "", "he", "HEL", "hell", "HELL"};
+        testPatternPermutations(noMatches,
+                new PatternMatch(Patterns.suffixEqualsIgnoreCaseMatch("hElLo"),
+                        "hello", "xhello", "xHeLlO", "XhElLo", "XHELLO", "HELLO", "HeLlO", "hElLo"),
+                new PatternMatch(Patterns.suffixEqualsIgnoreCaseMatch("XHeLlO"),
+                        "xhello", "XHELLO", "xHeLlO", "XhElLo"),
+                new PatternMatch(Patterns.exactMatch("hello"),
+                        "hello"),
+                new PatternMatch(Patterns.exactMatch("HELLO"),
+                        "HELLO"),
+                new PatternMatch(Patterns.exactMatch("hel"),
+                        "hel")
+        );
+    }
+
+    @Test
+    public void testSuffixEqualsIgnoreCasePatternMultipleWithMultipleEqualsIgnoreCaseMatch() {
+        String[] noMatches = new String[] { "", "he", "hell", "HELL" };
+        testPatternPermutations(noMatches,
+                new PatternMatch(Patterns.suffixEqualsIgnoreCaseMatch("hElLo"),
+                        "hello", "xhello", "XHELLO", "xHeLlO", "XhElLo", "xxhello"),
+                new PatternMatch(Patterns.suffixEqualsIgnoreCaseMatch("XHeLlO"),
+                        "xhello", "XHELLO", "xHeLlO", "XhElLo", "xxhello"),
+                new PatternMatch(Patterns.equalsIgnoreCaseMatch("hello"),
+                        "hello"),
+                new PatternMatch(Patterns.equalsIgnoreCaseMatch("hel"),
+                        "hel", "HEL")
+        );
+    }
+
+    @Test
+    public void testSuffixEqualsIgnoreCaseWithExactMatchLeadingCharacterSameLowerAndUpperCase() {
+        String[] noMatches = new String[] { "", "!", "!A", "a", "A", "b", "B" };
+        testPatternPermutations(noMatches,
+                new PatternMatch(Patterns.suffixEqualsIgnoreCaseMatch("b!"),
+                        "b!", "B!", "cdb!", "CdEB!"),
+                new PatternMatch(Patterns.exactMatch("!a"),
+                        "!a")
+        );
+    }
+
+    @Test
+    public void testSuffixEqualsIgnoreCaseWithPrefixMatchLeadingCharacterSameLowerAndUpperCase() {
+        String[] noMatches = new String[] { "", "!", "!A", "a", "A", "b", "B" };
+        testPatternPermutations(noMatches,
+                new PatternMatch(Patterns.prefixMatch("!b"),
+                        "!b"),
+                new PatternMatch(Patterns.suffixEqualsIgnoreCaseMatch("b!"),
+                        "b!", "B!", "cdb!", "CdEB!"),
+                new PatternMatch(Patterns.prefixMatch("!a"),
+                        "!a")
+        );
+    }
+
+    @Test
+    public void testSuffixEqualsIgnoreCaseWithWildcardMatchBeingAddedLater() {
+        String[] noMatches = new String[] { "", "!", "!A", "a", "A", "c", "B" };
+        testPatternPermutations(noMatches,
+                new PatternMatch(Patterns.suffixEqualsIgnoreCaseMatch("b!"),
+                        "b!", "B!", "cdb!", "CdEB!"),
+                new PatternMatch(Patterns.wildcardMatch("*b"),
+                        "!b", "b")
+        );
+    }
+
+    @Test
+    public void testSuffixEqualsIgnoreCaseWithExistingWildcardMatch() {
+        String[] noMatches = new String[] { "", "!", "!A", "a", "A", "c", "B" };
+        testPatternPermutations(noMatches,
+                new PatternMatch(Patterns.wildcardMatch("*b"),
+                        "!b", "b"),
+                new PatternMatch(Patterns.suffixEqualsIgnoreCaseMatch("b!"),
+                        "b!", "B!", "cdb!", "CdEB!")
+        );
+    }
+
+    @Test
+    public void testSuffixEqualsIgnoreCaseWithPrefixEqualsIgnoreCaseMatchBeingAddedLater() {
+        String[] noMatches = new String[] { "", "ab", "bcȺ", "bcⱥ" };
+        testPatternPermutations(noMatches,
+                new PatternMatch(Patterns.suffixEqualsIgnoreCaseMatch("abcȺ"),
+                        "abcⱥ", "abcȺ", "AbcȺ", "aaabcⱥ", "bbabcȺ", "ⱥcbaabcȺ", "ⱥcbaabcⱥ"),
+                new PatternMatch(Patterns.prefixEqualsIgnoreCaseMatch("Ⱥcba"),
+                        "ⱥcba", "Ⱥcba", "Ⱥcba", "ⱥcbaaa", "Ⱥcbabb", "ⱥcbaabcȺ", "ⱥcbaabcⱥ"),
+                new PatternMatch(Patterns.prefixEqualsIgnoreCaseMatch("abcȺ"),
+                        "abcⱥ", "abcȺ", "AbcȺ", "abcⱥaa", "abcȺbb")
+        );
+    }
+
+    @Test
+    public void testSuffixEqualsIgnoreCaseWithExistingPrefixEqualsIgnoreCaseMatch() {
+        String[] noMatches = new String[] { "", "ab", "bcȺ", "bcⱥ" };
+        testPatternPermutations(noMatches,
+                new PatternMatch(Patterns.prefixEqualsIgnoreCaseMatch("Ⱥcba"),
+                        "ⱥcba", "Ⱥcba", "Ⱥcba", "ⱥcbaaa", "Ⱥcbabb", "ⱥcbaabcȺ", "ⱥcbaabcⱥ"),
+                new PatternMatch(Patterns.prefixEqualsIgnoreCaseMatch("abcȺ"),
+                        "abcⱥ", "abcȺ", "AbcȺ", "abcⱥaa", "abcȺbb"),
+                new PatternMatch(Patterns.suffixEqualsIgnoreCaseMatch("abcȺ"),
+                        "abcⱥ", "abcȺ", "AbcȺ", "aaabcⱥ", "bbabcȺ", "ⱥcbaabcȺ", "ⱥcbaabcⱥ")
+        );
+    }
+
+    @Test
     public void testWildcardSingleWildcardCharacter() {
         testPatternPermutations(
                 new PatternMatch(Patterns.wildcardMatch("*"),
@@ -1226,7 +1724,7 @@ public class ByteMachineTest {
 
     @Test
     public void testWildcardLeadingWildcardCharacterNotUsedByExactMatch() {
-        String[] noMatches = new String[] { "", "hello", "hellox", "blahabc" };
+        String[] noMatches = new String[] { "", "xello", "hellox", "blahabc" };
         testPatternPermutations(noMatches,
                 new PatternMatch(Patterns.wildcardMatch("*hello"),
                         "hello", "xhello", "hehello"),
@@ -1490,7 +1988,7 @@ public class ByteMachineTest {
 
     @Test
     public void testWildcardSecondLastCharWildcardOccursBeforeDivergentFinalCharacterOfExactMatch() {
-        String[] noMatches = new String[] { "", "hel", "hexl", "helo", "helxx" };
+        String[] noMatches = new String[] { "", "hel", "hexl", "xelo", "helxx" };
         testPatternPermutations(noMatches,
                 new PatternMatch(Patterns.wildcardMatch("hel*o"),
                         "helo", "hello", "helxo", "helxxxo"),
@@ -2151,13 +2649,13 @@ public class ByteMachineTest {
     public void testAddRangePatternGivenNameStateReturned() {
         NameState nameState = new NameState();
         ByteMachine cut = new ByteMachine();
-        assertSame(nameState, cut.addPattern(Range.lessThan(5), nameState));
+        assertSame(nameState, cut.addPattern(Range.lessThan("5"), nameState));
     }
 
     @Test
     public void testAddRangePatternNoNameStateGiven() {
         ByteMachine cut = new ByteMachine();
-        assertNotNull(cut.addPattern(Range.lessThan(5)));
+        assertNotNull(cut.addPattern(Range.lessThan("5")));
     }
 
     private void testPatternPermutations(PatternMatch ... patternMatches) {
@@ -2188,17 +2686,22 @@ public class ByteMachineTest {
         System.out.println("USE ME TO REPRODUCE - ByteMachineTest.testPatternPermutations seeding with " + seed);
         Random r = new Random(seed);
         ByteMachine cut = new ByteMachine();
-        Set<String> matchValues = Stream.of(patternMatches)
+        // Tracks addition and removes across these patterns.
+        Match[] matchValues = Stream.of(patternMatches)
                                         .map(patternMatch -> patternMatch.matches)
                                         .flatMap(set -> set.stream())
-                                        .collect(Collectors.toSet());
-        matchValues.addAll(Arrays.asList(noMatches));
-        Matches matches = new Matches(matchValues.stream()
-                                                 .map(string -> new Match(string))
-                                                 .collect(Collectors.toList())
-                                                 .toArray(new Match[0]));
+                                        .distinct()
+                                        .map(string -> new Match(string))
+                                        .collect(Collectors.toList()).toArray(new Match[0]);
+        // Tracks any unintentional matches for above patterns.
+        final Match[] noMatchValues = Stream.of(noMatches)
+                .map(string -> new Match(string))
+                .collect(Collectors.toList())
+                .toArray(new Match[0]);
+        Matches matches = new Matches(matchValues, noMatchValues);
 
         List<PatternMatch[]> permutations = generateAllPermutations(patternMatches);
+
 
         for (PatternMatch[] additionPermutation : permutations) {
             // Magic number alert: For 5 or less patterns, it is reasonable to test all deletion permutations for each
@@ -2237,9 +2740,11 @@ public class ByteMachineTest {
 
     private static class Matches {
         private final Match[] matches;
+        private final Match[] noMatches;
 
-        public Matches(Match ... matches) {
+        public Matches(Match[] matches, Match[] noMatches) {
             this.matches = matches;
+            this.noMatches = noMatches;
         }
 
         public Match[] get() {
@@ -2250,6 +2755,9 @@ public class ByteMachineTest {
             for (Match match : matches) {
                 match.registerPattern(patternMatch);
             }
+            for (Match match : noMatches) { // record these to trigger failure below
+                match.registerPattern(patternMatch);
+            }
             return patternMatch.pattern;
         }
 
@@ -2257,13 +2765,24 @@ public class ByteMachineTest {
             for (Match match : matches) {
                 match.deregisterPattern(patternMatch);
             }
+            // ignoring noMatches here intentionally
             return patternMatch.pattern;
         }
 
         public void assertNoPatternsRegistered() {
             for (Match match : matches) {
-                assertEquals(0, match.getNumPatternsRegistered());
+                assertEquals("Should be zero " + match, 0, match.getNumPatternsRegistered());
             }
+            for (Match match : noMatches) {
+                assertEquals("Should be zero " + match, 0, match.getNumPatternsRegistered());
+            }
+        }
+
+        @Override
+        public String toString() {
+            return "Matches{" +
+                    "matches=" + Arrays.asList(matches) +
+                    '}';
         }
     }
 
@@ -2290,6 +2809,14 @@ public class ByteMachineTest {
         public int getNumPatternsRegistered() {
             return num;
         }
+
+        @Override
+        public String toString() {
+            return "Match{" +
+                    "value='" + value + '\'' +
+                    ", num=" + num +
+                    '}';
+        }
     }
 
     private static class PatternMatch {
@@ -2299,6 +2826,14 @@ public class ByteMachineTest {
         public PatternMatch(Patterns pattern, String ... matches) {
             this.pattern = pattern;
             this.matches = new HashSet<>(Arrays.asList(matches));
+        }
+
+        @Override
+        public String toString() {
+            return "PatternMatch{" +
+                    "pattern=" + pattern +
+                    ", matches=" + matches +
+                    '}';
         }
     }
 

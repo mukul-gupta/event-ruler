@@ -1,15 +1,15 @@
 package software.amazon.event.ruler;
 
-import java.io.IOException;
-import java.nio.charset.StandardCharsets;
-import java.util.List;
-import java.util.Map;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 
 import javax.annotation.concurrent.Immutable;
 import javax.annotation.concurrent.ThreadSafe;
-
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import java.io.IOException;
+import java.nio.charset.StandardCharsets;
+import java.util.List;
+import java.util.Locale;
+import java.util.Map;
 
 /**
  * The core idea of Ruler is to match rules to events at a rate that's independent of the number of rules.  This is
@@ -110,6 +110,22 @@ public class Ruler {
                 valuePattern = (ValuePatterns) pattern;
                 return val.isTextual() && ('"' + val.asText()).startsWith(valuePattern.pattern());
 
+            case PREFIX_EQUALS_IGNORE_CASE:
+                valuePattern = (ValuePatterns) pattern;
+                return val.isTextual() && ('"' + val.asText().toLowerCase(Locale.ROOT))
+                        .startsWith(valuePattern.pattern().toLowerCase(Locale.ROOT));
+            case SUFFIX:
+                valuePattern = (ValuePatterns) pattern;
+                // Undoes the reverse on the pattern value to match against the provided value
+                return val.isTextual() && (val.asText() + '"')
+                        .endsWith(new StringBuilder(valuePattern.pattern()).reverse().toString());
+
+            case SUFFIX_EQUALS_IGNORE_CASE:
+                valuePattern = (ValuePatterns) pattern;
+                // Undoes the reverse on the pattern value to match against the provided value
+                return val.isTextual() && (val.asText().toLowerCase(Locale.ROOT) + '"')
+                        .endsWith(new StringBuilder(valuePattern.pattern().toLowerCase(Locale.ROOT)).reverse().toString());
+
             case ANYTHING_BUT:
                 assert (pattern instanceof AnythingBut);
                 AnythingBut anythingButPattern = (AnythingBut) pattern;
@@ -117,27 +133,35 @@ public class Ruler {
                     return anythingButPattern.getValues().stream().noneMatch(v -> v.equals('"' + val.asText() + '"'));
                 } else if (val.isNumber()) {
                     return anythingButPattern.getValues().stream()
-                            .noneMatch(v -> v.equals(ComparableNumber.generate(val.asDouble())));
+                            .noneMatch(v -> v.equals(ComparableNumber.generate(val.asText())));
                 }
                 return false;
             case ANYTHING_BUT_IGNORE_CASE:
-                assert (pattern instanceof AnythingButEqualsIgnoreCase);
-                AnythingButEqualsIgnoreCase anythingButIgnoreCasePattern = (AnythingButEqualsIgnoreCase) pattern;
+                assert (pattern instanceof AnythingButValuesSet);
+                AnythingButValuesSet anythingButIgnoreCasePattern = (AnythingButValuesSet) pattern;
                 if (val.isTextual()) {
                     return anythingButIgnoreCasePattern.getValues().stream().noneMatch(v -> v.equalsIgnoreCase('"' + val.asText() + '"'));
                 }
                 return false;
 
             case ANYTHING_BUT_SUFFIX:
-                valuePattern = (ValuePatterns) pattern;
-                return !(val.isTextual() && (val.asText() + '"').startsWith(valuePattern.pattern()));
+                AnythingButValuesSet anythingButSuffixPattern = (AnythingButValuesSet) pattern;
+                String valueForSuffix = val.asText() + '"';
+                if (val.isTextual()) {
+                    return anythingButSuffixPattern.getValues().stream().noneMatch(v -> valueForSuffix.startsWith(v));
+                }
+                return false;
             case ANYTHING_BUT_PREFIX:
-                valuePattern = (ValuePatterns) pattern;
-                return !(val.isTextual() && ('"' + val.asText()).startsWith(valuePattern.pattern()));
+                AnythingButValuesSet anythingButPrefixPattern = (AnythingButValuesSet) pattern;
+                String valueForPrefix = '"' + val.asText() + '"';
+                if (val.isTextual()) {
+                    return anythingButPrefixPattern.getValues().stream().noneMatch(v -> valueForPrefix.startsWith(v));
+                }
+                return false;
 
             case NUMERIC_EQ:
                 valuePattern = (ValuePatterns) pattern;
-                return val.isNumber() && ComparableNumber.generate(val.asDouble()).equals(valuePattern.pattern());
+                return val.isNumber() && ComparableNumber.generate(val.asText()).equals(valuePattern.pattern());
             case EXISTS:
                 return true;
             case ABSENT:
@@ -158,7 +182,7 @@ public class Ruler {
                     if (!val.isNumber()) {
                         return false;
                     }
-                    bytes = ComparableNumber.generate(val.asDouble()).getBytes(StandardCharsets.UTF_8);
+                    bytes = ComparableNumber.generate(val.asText()).getBytes(StandardCharsets.UTF_8);
                 }
                 final int comparedToBottom = compare(bytes, nr.bottom);
                 if ((comparedToBottom > 0) || (comparedToBottom == 0 && !nr.openBottom)) {

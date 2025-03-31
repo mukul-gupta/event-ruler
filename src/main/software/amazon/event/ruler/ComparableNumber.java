@@ -1,93 +1,126 @@
 package software.amazon.event.ruler;
 
-import java.nio.ByteBuffer;
+import ch.randelshofer.fastdoubleparser.JavaBigDecimalParser;
+
+import java.math.BigDecimal;
 import java.nio.charset.StandardCharsets;
+import java.util.Arrays;
+import java.util.List;
 
 /**
- * Represents a number, turned into a comparable string
- *  Numbers are allowed in the range -50**9 .. +50**9, inclusive
- *  Comparisons are precise to 6 digits to the right of the decimal point
- *  They are all treated as floating point
- *  They are turned into strings by:
- *  1. Add 10**9 (so no negatives), then multiply by 10**6 to remove the decimal point
- *  2. Format to a 14 char string left padded with 0 because hex string converted from 5e9*1e6=10e15 has 14 characters.
- *  Note: We use Hex because of a) it can save 3 bytes memory per number than decimal b) it aligned IP address radix.
- *  If needed, we can consider to use 32 or 64 radix description to save more memory,e.g. the string length will be 10
- *  for 32 radix, and 9 for 64 radix.
- *
- *  Note:
- *  The number is parsed to be java double to support number with decimal fraction, the max range supported is from
- *  -5e9 to 5e9 with precision of 6 digits to the right of decimal point.
- *  There is well known issue that double number will lose the precision while calculation among double and other data
- *  types, the higher the number, the lower the accuracy that can be maintained.
- *  For example: 0.30d - 0.10d = 0.19999999999999998 instead of 0.2d, and if extend to 1e10, the test result shows only
- *  5 digits of precision from right of decimal point can be guaranteed with existing implementation.
- *  The current max number 5e9 is selected with a balance between keeping the committed 6 digits of precision from right
- *  of decimal point and the memory cost (each number is parsed into a 14 characters HEX string).
- *
- *  CAVEAT:
- *  When there is need to further enlarging the max number, PLEASE BE VERY CAREFUL TO RESERVE THE NUMBER PRECISION AND
- *  TAKEN THE MEMORY COST INTO CONSIDERATION, BigDecimal shall be used to ensure the precision of double calculation ...
+ * Represents a number as a comparable string.
+ * <br/>
+ * All possible double numbers (IEEE-754 binary64 standard) are allowed.
+ * Numbers are first standardized to floating-point values and then converted
+ * to a Base128 encoded string of 10 bytes.
+ * <br/>
+ * The used Base128 encoding offers a compact representation of decimal numbers
+ * as it preserves the lexicographical order of the numbers. See
+ * https://github.com/aws/event-ruler/issues/179 for more context.
+ * <br/>
+ * The numbers are first parsed as a Java {@code BigDecimal} as there is a well known issue
+ * where parsing directly to {@code Double} can lose precision when parsing doubles. It's
+ * probably possible to support wider ranges with our current implementation of parsing strings to
+ * BigDecimal, but it's not worth the effort as JSON also support upto float64 range. In
+ * case this requirement changes, it would be advisable to move away from using {@code Doubles}
+ * and {@code Long} in this class.
+ * <br/>
+ * CAVEAT:
+ * There are precision and memory implications of the implementation here.
+ * When trying to increase the maximum number, PLEASE BE VERY CAREFUL TO PRESERVE THE NUMBER PRECISION AND
+ * CONSIDER THE MEMORY COST.
  */
 class ComparableNumber {
-    private static final double TEN_E_SIX = 1E6;
-    static final int MAX_LENGTH_IN_BYTES = 16;
-    private static final String HEXES = new String(Constants.HEX_DIGITS, StandardCharsets.US_ASCII);
-    public static final int NIBBLE_SIZE = 4;
 
-    // 1111 0000
-    private static final int UPPER_NIBBLE_MASK = 0xF0;
+    static final int MAX_LENGTH_IN_BYTES = 10;
+    static final int BASE_128_BITMASK = 0x7f; // 127 or 01111111
 
-    // 0000 1111
-    private static final int LOWER_NIBBLE_MASK = 0x0F;
+    private ComparableNumber() {}
 
-    private ComparableNumber() {
-    }
+    /**
+     * Generates a comparable number string from a given string representation
+     * using numbits representation.
+     *
+     * @param str the string representation of the number
+     * @return the comparable number string
+     * @throws NumberFormatException if the input isn't a number
+     * @throws IllegalArgumentException if the input isn't a number we can compare
+     */
+    static String generate(final String str) {
+        final BigDecimal bigDecimal = JavaBigDecimalParser.parseBigDecimal(str);
+        final double doubleValue = bigDecimal.doubleValue();
 
-    static String generate(final double f) {
-        if (f < -Constants.FIVE_BILLION || f > Constants.FIVE_BILLION) {
-            throw new IllegalArgumentException("Value must be between " + -Constants.FIVE_BILLION +
-                    " and " + Constants.FIVE_BILLION + ", inclusive");
+        // make sure we have the comparable numbers and haven't eaten up decimals values
+        if(Double.isNaN(doubleValue) || Double.isInfinite(doubleValue) ||
+                BigDecimal.valueOf(doubleValue).compareTo(bigDecimal) != 0) {
+            throw new IllegalArgumentException("Cannot compare number : " + str);
         }
-        return toHexStringSkippingFirstByte((long) (TEN_E_SIX * (Constants.FIVE_BILLION + f)));
+        final long bits = Double.doubleToRawLongBits(doubleValue);
+
+        // https://github.com/aws/event-ruler/pull/188/files#r1769199522
+        // https://mastodon.online/@raph/113071041069390831
+        // if high bit is 0, we want to xor with sign bit 1 << 63, else negate (xor with ^0). Meaning,
+        // bits >= 0, mask = 1000000000000000000000000000000000000000000000000000000000000000
+        // bits < 0,  mask = 1111111111111111111111111111111111111111111111111111111111111111
+        final  long mask = (bits >> 63) | (1L  << 63);
+        return numbits(bits ^ mask );
     }
 
     /**
-     * converts a single byte to its two hexadecimal character representation
-     * @param value the byte we want to convert to hex string
-     * @return a 2 digit char array with the equivalent hex representation
+     * Converts a long value to a Base128 encoded string representation.
+     * <br/>
+     * The Base128 encoding scheme is a way to represent a long value as a sequence
+     * of bytes, where each byte encodes 7 bits of the original value. This allows for
+     * efficient storage and transmission of large numbers.
+     * <br/>
+     * The method first determines the number of trailing zero bytes in the input
+     * value by iterating over the bytes from the most significant byte to the least
+     * significant byte, and counting the number of consecutive zero bytes at the end.
+     * It then creates a byte array of fixed length {@code MAX_LENGTH_IN_BYTES} and
+     * populates it with the Base128 encoded bytes of the input value, starting from
+     * the least significant byte.
+     * <br/>
+     * As shown in Quamina's numbits.go, it's possible to use variable length encoding
+     * to reduce storage for simple (often common) numbers but it's not done here to
+     * keep range comparisons simple for now.
+     *
+     * @param value the long value to be converted
+     * @return the Base128 encoded string representation of the input value
      */
-    static char[] byteToHexChars(byte value) {
-
-        char[] result = new char[2];
-
-        int upperNibbleIndex = (value & UPPER_NIBBLE_MASK) >> NIBBLE_SIZE;
-        int lowerNibbleIndex = value & LOWER_NIBBLE_MASK;
-
-        result[0] = HEXES.charAt(upperNibbleIndex);
-        result[1] = HEXES.charAt(lowerNibbleIndex);
-
-        return result;
-
-    }
-
-    private static byte[] longToByteBuffer(long value) {
-        ByteBuffer buffer = ByteBuffer.allocate(Long.BYTES);
-        buffer.putLong(value);
-        return buffer.array();
-    }
-
-    static String toHexStringSkippingFirstByte(long value) {
-        byte[] raw = longToByteBuffer(value);
-        char[] outputChars = new char[14];
-        for (int i = 1; i < raw.length; i++) {
-            int pos = (i - 1) * 2;
-            char[] currentByteChars = byteToHexChars(raw[i]);
-            outputChars[pos] = currentByteChars[0];
-            outputChars[pos + 1] = currentByteChars[1];
+    public static String numbits(long value) {
+        int trailingZeroes = 0;
+        int index;
+        // Count the number of trailing zero bytes to skip setting them
+        for(index = MAX_LENGTH_IN_BYTES - 1; index >= 0; index--) {
+            if((value & BASE_128_BITMASK) != 0) {
+                break;
+            }
+            trailingZeroes ++;
+            value >>= 7;
         }
-        return new String(outputChars);
+
+        byte[] result = new byte[MAX_LENGTH_IN_BYTES];
+
+        // Populate the byte array with the Base128 encoded bytes of the input value
+        for(; index >= 0; index--) {
+            result[index] = (byte)(value & BASE_128_BITMASK);
+            value >>= 7;
+        }
+
+        return new String(result, StandardCharsets.UTF_8);
     }
 
+    /**
+     * This is a utility function for debugging and tests.
+     * Converts a given string into a list of integers, where each integer represents
+     * the ASCII value of the corresponding character in the string.
+     */
+    static List<Integer> toIntVals(String s) {
+        Integer[] arr = new Integer[s.length()];
+        for (int i=0; i<s.length(); i++) {
+            arr[i] = (int)s.charAt(i);
+        }
+        return Arrays.asList(arr);
+    }
 }
 

@@ -3,14 +3,16 @@ package software.amazon.event.ruler;
 import org.junit.Before;
 import org.junit.Test;
 
+import java.util.Arrays;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Timer;
 import java.util.TimerTask;
 
-import static software.amazon.event.ruler.PermutationsGenerator.generateAllPermutations;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
+import static software.amazon.event.ruler.PermutationsGenerator.generateAllPermutations;
 
 /**
  * For each test, for illustrative purposes, I will provide one input string that results in the maximum number of
@@ -479,6 +481,75 @@ public class MachineComplexityEvaluatorTest {
 
         // Cancel the timeoutTask in case it hasn't run yet.
         timeoutTask.cancel();
+    }
+
+    @Test
+    public void testEvaluateAnythingButWildcard() {
+        ByteMachine machine = new ByteMachine();
+        machine.addPattern(Patterns.anythingButWildcard("a*b*b"));
+        // "abb" is matched by 4 wildcard prefixes: "a*", "a*b", "a*b*", "a*b*b"
+        assertEquals(4, machine.evaluateComplexity(evaluator));
+    }
+
+    @Test
+    public void testEvaluateAnythingButWildcardMultiplePatterns() {
+        // "aaaa" is matched by 7 wildcard prefixes: "a*", "a*a", "a*aa", "a*aaa", "aa*", "aa*a", "aa*aa"
+        testPatternPermutations(7, Patterns.anythingButWildcard("a*aaa"),
+                                   Patterns.anythingButWildcard("aa*aa"));
+    }
+
+    @Test
+    public void testEvaluateAnythingButWildcardMultiplePatternsViaSet() {
+        ByteMachine machine = new ByteMachine();
+        machine.addPattern(Patterns.anythingButWildcard(new HashSet<>(Arrays.asList("a*aaa", "aa*aa"))));
+        // "aaaa" is matched by 7 wildcard prefixes: "a*", "a*a", "a*aa", "a*aaa", "aa*", "aa*a", "aa*aa"
+        assertEquals(6, machine.evaluateComplexity(evaluator));
+    }
+
+    @Test
+    public void testEvaluateAnythingButWildcardWithWildcard() {
+        // "aaaa" is matched by 7 wildcard prefixes: "a*", "a*a", "a*aa", "a*aaa", "aa*", "aa*a", "aa*aa"
+        testPatternPermutations(7, Patterns.anythingButWildcard("a*aaa"),
+                                   Patterns.wildcardMatch("aa*aa"));
+    }
+
+    @Test
+    public void testEvaluateWildcardWithAnythingButWildcard() {
+        // "aaaa" is matched by 7 wildcard prefixes: "a*", "a*a", "a*aa", "a*aaa", "aa*", "aa*a", "aa*aa"
+        testPatternPermutations(7, Patterns.wildcardMatch("a*aaa"),
+                                   Patterns.anythingButWildcard("aa*aa"));
+    }
+
+    /**
+     * Make sure we do not trigger a state explosion when evaluating complexity for rules
+     * with numeric matchers
+     */
+    @Test(timeout = 250)
+    public void testEvaluateForMultipleNumericMatchers() throws Exception {
+        String rule = "{\n" +
+                "    \"field1\": [{\n" +
+                "        \"numeric\": [\"<=\", 120.0]\n" +
+                "    }],\n" +
+                "    \"field2\": [{\n" +
+                "        \"numeric\": [\">\", 300.0]\n" +
+                "    }],\n" +
+                "    \"field3\": [{\n" +
+                "        \"numeric\": [\"=\", 60.0]\n" +
+                "    }],\n" +
+                "    \"field4\": [{\n" +
+                "        \"numeric\": [\"<\", 60.0]\n" +
+                "    }],\n" +
+                "    \"field5\": [{\n" +
+                "        \"numeric\": [\"<=\", 60.0]\n" +
+                "    }]\n" +
+                "}";
+        Machine machine = new Machine.Builder().withAdditionalNameStateReuse(true).build();
+        machine.addRule("rule", rule);
+        assertEquals(0, machine.evaluateComplexity(evaluator));
+
+        machine = new Machine.Builder().withAdditionalNameStateReuse(false).build();
+        machine.addRule("rule", rule);
+        assertEquals(0, machine.evaluateComplexity(evaluator));
     }
 
     private void testPatternPermutations(int expectedComplexity, Patterns ... patterns) {

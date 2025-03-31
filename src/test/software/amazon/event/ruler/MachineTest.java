@@ -1,9 +1,13 @@
 package software.amazon.event.ruler;
 
+import org.junit.Test;
+
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.StringReader;
 import java.nio.charset.StandardCharsets;
+import java.time.Duration;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
@@ -15,7 +19,7 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
-import org.junit.Test;
+
 import static java.util.Arrays.asList;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
@@ -31,12 +35,11 @@ import static org.junit.Assert.fail;
 public class MachineTest {
 
     private String toIP(int ip) {
-        StringBuilder sb = new StringBuilder();
-        sb.append((ip >> 24) & 0xFF).append('.');
-        sb.append((ip >> 16) & 0xFF).append('.');
-        sb.append((ip >> 8) & 0xFF).append('.');
-        sb.append(ip & 0xFF);
-        return sb.toString();
+        String sb = String.valueOf((ip >> 24) & 0xFF) + '.' +
+                ((ip >> 16) & 0xFF) + '.' +
+                ((ip >> 8) & 0xFF) + '.' +
+                (ip & 0xFF);
+        return sb;
     }
 
     @Test
@@ -225,16 +228,16 @@ public class MachineTest {
         machine.addRule("r1", rule1);
         machine.addRule("r2", rule2);
         machine.addRule("r3", rule3);
-        assertEquals(Arrays.asList("r1"), machine.rulesForJSONEvent("{\"a\" : \"abc\"}"));
+        assertEquals(Collections.singletonList("r1"), machine.rulesForJSONEvent("{\"a\" : \"abc\"}"));
         assertEquals(new HashSet<>(Arrays.asList("r2", "r3")),
                 new HashSet<>(machine.rulesForJSONEvent("{\"b\" : \"XYZ\"}")));
-        assertEquals(Arrays.asList("r1"), machine.rulesForJSONEvent("{\"a\" : \"AbC\"}"));
+        assertEquals(Collections.singletonList("r1"), machine.rulesForJSONEvent("{\"a\" : \"AbC\"}"));
         assertTrue(machine.rulesForJSONEvent("{\"b\" : \"xyzz\"}").isEmpty());
         assertTrue(machine.rulesForJSONEvent("{\"a\" : \"aabc\"}").isEmpty());
         assertTrue(machine.rulesForJSONEvent("{\"b\" : \"ABCXYZ\"}").isEmpty());
 
         machine.deleteRule("r3", rule3);
-        assertEquals(Arrays.asList("r2"), machine.rulesForJSONEvent("{\"b\" : \"XYZ\"}"));
+        assertEquals(Collections.singletonList("r2"), machine.rulesForJSONEvent("{\"b\" : \"XYZ\"}"));
 
         machine.deleteRule("r1", rule1);
         machine.deleteRule("r2", rule2);
@@ -257,14 +260,14 @@ public class MachineTest {
         machine.addRule("r4", rule4);
         machine.addRule("r5", rule5);
         machine.addRule("r6", rule6);
-        assertEquals(Arrays.asList("r1"), machine.rulesForJSONEvent("{\"a\" : \"bc\"}"));
-        assertEquals(Arrays.asList("r1"), machine.rulesForJSONEvent("{\"a\" : \"abc\"}"));
-        assertEquals(Arrays.asList("r2"), machine.rulesForJSONEvent("{\"b\" : \"dexef\"}"));
+        assertEquals(Collections.singletonList("r1"), machine.rulesForJSONEvent("{\"a\" : \"bc\"}"));
+        assertEquals(Collections.singletonList("r1"), machine.rulesForJSONEvent("{\"a\" : \"abc\"}"));
+        assertEquals(Collections.singletonList("r2"), machine.rulesForJSONEvent("{\"b\" : \"dexef\"}"));
         assertEquals(new HashSet<>(Arrays.asList("r2", "r3")),
                 new HashSet<>(machine.rulesForJSONEvent("{\"b\" : \"dexeff\"}")));
         assertEquals(new HashSet<>(Arrays.asList("r4", "r5")),
                 new HashSet<>(machine.rulesForJSONEvent("{\"c\" : \"xyzzz\"}")));
-        assertEquals(Arrays.asList("r6"), machine.rulesForJSONEvent("{\"d\" : \"12345\"}"));
+        assertEquals(Collections.singletonList("r6"), machine.rulesForJSONEvent("{\"d\" : \"12345\"}"));
         assertTrue(machine.rulesForJSONEvent("{\"c\" : \"abc\"}").isEmpty());
         assertTrue(machine.rulesForJSONEvent("{\"a\" : \"xyz\"}").isEmpty());
         assertTrue(machine.rulesForJSONEvent("{\"c\" : \"abcxyz\"}").isEmpty());
@@ -273,7 +276,7 @@ public class MachineTest {
         assertTrue(machine.rulesForJSONEvent("{\"d\" : \"1235\"}").isEmpty());
 
         machine.deleteRule("r5", rule5);
-        assertEquals(Arrays.asList("r4"), machine.rulesForJSONEvent("{\"c\" : \"xy\"}"));
+        assertEquals(Collections.singletonList("r4"), machine.rulesForJSONEvent("{\"c\" : \"xy\"}"));
 
         machine.deleteRule("r1", rule1);
         machine.deleteRule("r2", rule2);
@@ -355,7 +358,7 @@ public class MachineTest {
         absencePatterns.add(Patterns.absencePatterns());
         r2.put("c", absencePatterns);
         List<Patterns> numericalPattern = new ArrayList<>();
-        numericalPattern.add(Patterns.numericEquals(3));
+        numericalPattern.add(Patterns.numericEquals("3"));
         r2.put("d", numericalPattern);
 
         String rule3 = "rule3";
@@ -522,7 +525,7 @@ public class MachineTest {
         r1.put("a", exactPattern);
 
         List<Patterns> greaterPattern = new ArrayList<>();
-        greaterPattern.add(Range.greaterThan(10));
+        greaterPattern.add(Range.greaterThan("10"));
         r1.put("b", greaterPattern);
 
         List<Patterns> existsPattern = new ArrayList<>();
@@ -751,7 +754,7 @@ public class MachineTest {
 
     private static class TestEvent {
 
-        private String[] mTokens;
+        private final String[] mTokens;
         private final List<String> mExpectedRules = new ArrayList<>();
 
         TestEvent(String... tokens) {
@@ -1263,7 +1266,7 @@ public class MachineTest {
 
         // add the rule, ensure it matches
         cut.addRule("r1", rule);
-        String[] event = {"x", "111111111.111111111"};
+        String[] event = {"x", "111111111.111111"};
         String[] event1 = {"x", "1000000000"};
         assertEquals(1, cut.rulesForEvent(event).size());
         assertEquals(0, cut.rulesForEvent(event1).size());
@@ -2165,22 +2168,164 @@ public class MachineTest {
     }
 
     @Test
+    public void testCIDRRuleWithMatchingAnythingButRule() throws Exception {
+        String rule1 = "{\"ip\": [{\"anything-but\": \"10.0.1.200\"}]}";
+        String rule2 = "{\"ip\": [\"10.0.1.200\"]}";
+
+        Machine machine = new Machine();
+        machine.addRule("rule1", rule1);
+        machine.addRule("rule2", rule2);
+
+        String event = "{" +
+                "\"ip\": \"10.0.1.200\"" +
+        "}";
+
+        List<String> matches = machine.rulesForEvent(event);
+        assertEquals(1, matches.size());
+        assertTrue(matches.contains("rule2"));
+    }
+
+    @Test
+    public void testCIDRRuleWithMatchingAnythingButPrefixRule() throws Exception {
+        String rule1 = "{\"ip\": [{\"anything-but\": {\"prefix\": \"10.0.\"}}]}";
+        String rule2 = "{\"ip\": [\"10.0.1.200\"]}";
+
+        Machine machine = new Machine();
+        machine.addRule("rule1", rule1);
+        machine.addRule("rule2", rule2);
+
+        String event = "{" +
+                "\"ip\": \"10.0.1.200\"" +
+        "}";
+
+        List<String> matches = machine.rulesForEvent(event);
+        assertEquals(1, matches.size());
+        assertTrue(matches.contains("rule2"));
+    }
+
+    @Test
+    public void testCIDRRuleWithMatchingAnythingButSuffixRule() throws Exception {
+        String rule1 = "{\"ip\": [{\"anything-but\": {\"suffix\": \"1.200\"}}]}";
+        String rule2 = "{\"ip\": [\"10.0.1.200\"]}";
+
+        Machine machine = new Machine();
+        machine.addRule("rule1", rule1);
+        machine.addRule("rule2", rule2);
+
+        String event = "{" +
+                "\"ip\": \"10.0.1.200\"" +
+        "}";
+
+        List<String> matches = machine.rulesForEvent(event);
+        assertEquals(1, matches.size());
+        assertTrue(matches.contains("rule2"));
+    }
+
+    @Test
+    public void testCIDRRuleWithMatchingAnythingButEqualsIgnoreCaseRule() throws Exception {
+        String rule1 = "{\"ip\": [{\"anything-but\": {\"equals-ignore-case\": \"10.0.1.200\"}}]}";
+        String rule2 = "{\"ip\": [\"10.0.1.200\"]}";
+
+        Machine machine = new Machine();
+        machine.addRule("rule1", rule1);
+        machine.addRule("rule2", rule2);
+
+        String event = "{" +
+                "\"ip\": \"10.0.1.200\"" +
+        "}";
+
+        List<String> matches = machine.rulesForEvent(event);
+        assertEquals(1, matches.size());
+        assertTrue(matches.contains("rule2"));
+    }
+
+    @Test
+    public void testCIDRRuleWithNumericRule() throws Exception {
+        String rule1 = "{\"ip\": [{\"numeric\": [\">\", 0, \"<=\", 5]}]}";
+        String rule2 = "{\"ip\": [\"10.0.1.200\"]}";
+
+        Machine machine = new Machine();
+        machine.addRule("rule1", rule1);
+        machine.addRule("rule2", rule2);
+
+        String event = "{" +
+                "\"ip\": \"10.0.1.200\"" +
+        "}";
+
+        List<String> matches = machine.rulesForEvent(event);
+        assertEquals(1, matches.size());
+        assertTrue(matches.contains("rule2"));
+    }
+
+    @Test
+    public void testAdditionalNameSateReuseAllKeysAndPatternsEncounteredInPreviousSubRules() throws Exception {
+        String rule1 = "{\"$or\":[\n" +
+                "         {\"foo\": [\"a\"],\n" +
+                "          \"bar\": [\"1\"]\n" +
+                "         },\n" +
+                "         {\"foo\": [\"b\"],\n" +
+                "          \"bar\": [\"2\"]\n" +
+                "         },\n" +
+                "         {\"foo\": [\"b\"],\n" +
+                "          \"bar\": [\"1\"]\n" +
+                "         }\n" +
+                "       ]}";
+
+        Machine machine = Machine.builder().withAdditionalNameStateReuse(true).build();
+        machine.addRule("rule1", rule1);
+
+        String event = "{" +
+                "  \"foo\": [\"b\"]," +
+                "  \"bar\": [\"1\"]" +
+                "}";
+
+        List<String> matches = machine.rulesForEvent(event);
+        assertEquals(1, matches.size());
+        assertTrue(matches.contains("rule1"));
+    }
+
+    @Test
+    public void testAdditionalNameStateReuseSecondSubRuleSubsetOfFirstSubRule() throws Exception {
+        String rule1 = "{\"$or\":[\n" +
+                "         {\"bar\": [\"1\"],\n" +
+                "          \"foo\": [\"a\"],\n" +
+                "          \"zoo\": [\"x\"]\n" +
+                "         },\n" +
+                "         {\"bar\": [\"1\"],\n" +
+                "          \"zoo\": [\"x\"]\n" +
+                "         }\n" +
+                "       ]}";
+
+        Machine machine = Machine.builder().withAdditionalNameStateReuse(true).build();
+        machine.addRule("rule1", rule1);
+
+        String event = "{" +
+                "  \"bar\": [\"1\"]," +
+                "  \"zoo\": [\"x\"]" +
+                "}";
+
+        List<String> matches = machine.rulesForEvent(event);
+        assertEquals(1, matches.size());
+        assertTrue(matches.contains("rule1"));
+    }
+
+    @Test
     public void testApproxSizeForSimplestPossibleMachine() throws Exception {
         String rule1 = "{ \"a\" : [ 1 ] }";
         String rule2 = "{ \"b\" : [ 2 ] }";
         String rule3 = "{ \"c\" : [ 3 ] }";
 
         Machine machine = new Machine();
-        assertEquals(1, machine.approximateObjectCount());
+        assertEquals(1, machine.approximateObjectCount(10000));
 
         machine.addRule("r1", rule1);
-        assertEquals(22, machine.approximateObjectCount());
+        assertEquals(18, machine.approximateObjectCount(10000));
 
         machine.addRule("r2", rule2);
-        assertEquals(43, machine.approximateObjectCount());
+        assertEquals(35, machine.approximateObjectCount(10000));
 
         machine.addRule("r3", rule3);
-        assertEquals(64, machine.approximateObjectCount());
+        assertEquals(52, machine.approximateObjectCount(10000));
     }
 
     @Test
@@ -2189,13 +2334,13 @@ public class MachineTest {
 
         Machine machine = new Machine();
         machine.addRule("r1", rule1);
-        assertEquals(79, machine.approximateObjectCount());
+        assertEquals(79, machine.approximateObjectCount(10000));
 
         // Adding the same rule multiple times should not increase object count
         for (int i = 0; i < 100; i++) {
             machine.addRule("r1", rule1);
         }
-        assertEquals(79, machine.approximateObjectCount());
+        assertEquals(79, machine.approximateObjectCount(10000));
     }
 
     @Test
@@ -2205,11 +2350,11 @@ public class MachineTest {
 
         Machine machine = new Machine();
         machine.addRule("r1", rule1a);
-        assertEquals(79, machine.approximateObjectCount());
+        assertEquals(79, machine.approximateObjectCount(10000));
 
         // Adding rule with terminal key having subset of values will be treated as same rule and thus increase size
         machine.addRule("r1", rule1b);
-        assertEquals(79, machine.approximateObjectCount());
+        assertEquals(79, machine.approximateObjectCount(10000));
     }
 
     @Test
@@ -2219,11 +2364,11 @@ public class MachineTest {
 
         Machine machine = new Machine();
         machine.addRule("r1", rule1a);
-        assertEquals(79, machine.approximateObjectCount());
+        assertEquals(79, machine.approximateObjectCount(10000));
 
         // Adding rule with non-terminal key having subset of values will be treated as same rule and not affect count
         machine.addRule("r1", rule1b);
-        assertEquals(79, machine.approximateObjectCount());
+        assertEquals(79, machine.approximateObjectCount(10000));
     }
 
     @Test
@@ -2233,11 +2378,11 @@ public class MachineTest {
 
         Machine machine = new Machine();
         machine.addRule("r1", rule1a);
-        assertEquals(79, machine.approximateObjectCount());
+        assertEquals(79, machine.approximateObjectCount(10000));
 
         // Adding rule with terminal key having superset of values will be treated as new rule and increase count
         machine.addRule("r1", rule1b);
-        assertEquals(89, machine.approximateObjectCount());
+        assertEquals(88, machine.approximateObjectCount(10000));
     }
 
     @Test
@@ -2247,11 +2392,11 @@ public class MachineTest {
 
         Machine machine = new Machine();
         machine.addRule("r1", rule1a);
-        assertEquals(79, machine.approximateObjectCount());
+        assertEquals(79, machine.approximateObjectCount(10000));
 
         // Adding rule with non-terminal key having superset of values will be treated as new rule and increase count
         machine.addRule("r1", rule1b);
-        assertEquals(89, machine.approximateObjectCount());
+        assertEquals(88, machine.approximateObjectCount(10000));
     }
 
     @Test
@@ -2273,7 +2418,7 @@ public class MachineTest {
         assertEquals(1, matchRules.size());
     }
 
-    @Test(timeout = 500)
+    @Test(timeout = 250)
     public void testApproximateSizeDoNotTakeForeverForRulesWithNumericMatchers() throws Exception {
         Machine machine = new Machine();
         machine.addRule("rule",
@@ -2283,45 +2428,78 @@ public class MachineTest {
                         "    \"c\": [{ \"numeric\": [\">\", 50] }]\n" +
                         "}");
 
-        assertEquals(517, machine.approximateObjectCount());
+        assertEquals(52, machine.approximateObjectCount(10000));
     }
 
     @Test
     public void testApproximateSizeForDifferentBasicRules() throws Exception {
         Machine machine = new Machine();
-        assertEquals(1, machine.approximateObjectCount());
+        assertEquals(1, machine.approximateObjectCount(10000));
 
 
         machine.addRule("single-rule", "{ \"key\" :  [ \"value\" ] }");
-        assertEquals(8, machine.approximateObjectCount());
+        assertEquals(8, machine.approximateObjectCount(10000));
 
         // every new rule also is considered as part of the end-state
         machine = new Machine();
         for(int i = 0 ; i < 1000; i ++) {
             machine.addRule("lots-rule-" + i, "{ \"key\" :  [ \"value\" ] }");
         }
-        assertEquals(1007, machine.approximateObjectCount());
+        assertEquals(1007, machine.approximateObjectCount(10000));
 
         // new unique rules create new states
         machine = new Machine();
         for(int i = 0 ; i < 1000; i ++) {
             machine.addRule("lots-key-values-" + i, "{ \"many-kv-" + i + "\" :  [ \"value" + i + "\" ] }");
         }
-        assertEquals(7001, machine.approximateObjectCount());
+        assertEquals(7001, machine.approximateObjectCount(10000));
 
         // new unique rule keys create same states as unique rules
         machine = new Machine();
         for(int i = 0 ; i < 1000; i ++) {
             machine.addRule("lots-keys-" + i, "{ \"many-key-" + i + "\" :  [ \"value\" ] }");
         }
-        assertEquals(6002, machine.approximateObjectCount());
+        assertEquals(6002, machine.approximateObjectCount(10000));
 
         // new unique rule with many values are smaller
         machine = new Machine();
         for(int i = 0 ; i < 1000; i ++) {
             machine.addRule("lots-values-" + i, "{ \"many-values-key\" :  [ \"value" + i + " \" ] }");
         }
-        assertEquals(5108, machine.approximateObjectCount());
+        assertEquals(5108, machine.approximateObjectCount(10000));
+    }
+
+    @Test
+    public void testApproximateSizeWhenCapped() throws Exception {
+        Machine machine = new Machine();
+        assertEquals(0, machine.approximateObjectCount(0));
+        assertEquals(1, machine.approximateObjectCount(1));
+        assertEquals(1, machine.approximateObjectCount(10));
+
+        machine.addRule("single-rule", "{ \"key\" :  [ \"value\" ] }");
+        assertEquals(1, machine.approximateObjectCount(1));
+        assertEquals(8, machine.approximateObjectCount(10));
+
+        for(int i = 0 ; i < 100000; i ++) {
+            machine.addRule("lots-rule-" + i, "{ \"key\" :  [ \"value\" ] }");
+        }
+        for(int i = 0 ; i < 100000; i ++) {
+            machine.addRule("lots-key-values-" + i, "{ \"many-kv-" + i + "\" :  [ \"value" + i + "\" ] }");
+        }
+        for(int i = 0 ; i < 100000; i ++) {
+            machine.addRule("lots-keys-" + i, "{ \"many-key-" + i + "\" :  [ \"value\" ] }");
+        }
+        for(int i = 0 ; i < 100000; i ++) {
+            machine.addRule("lots-values-" + i, "{ \"many-values-key\" :  [ \"value" + i + " \" ] }");
+        }
+        assertApproximateCountWithTime(machine, 1000, 1000, 150);
+        assertApproximateCountWithTime(machine, Integer.MAX_VALUE, 1910015, 5000);
+    }
+
+    private void assertApproximateCountWithTime(Machine machine, int maxThreshold, int expectedValue, int maxExpectedDurationMillis) {
+        final Instant start = Instant.now();
+        assertEquals(expectedValue, machine.approximateObjectCount(maxThreshold));
+        assertTrue(maxExpectedDurationMillis > Duration.between(start, Instant.now()).toMillis());
     }
 
     @Test
@@ -2334,7 +2512,7 @@ public class MachineTest {
                         "        \"eventName\": [\"Name1\",\"Name2\",\"Name3\"]\n" +
                         "    }\n" +
                         "}");
-        assertEquals(25, machine.approximateObjectCount());
+        assertEquals(25, machine.approximateObjectCount(10000));
 
         machine.addRule("rule-with-six-elements",
                 "{\n" +
@@ -2343,7 +2521,7 @@ public class MachineTest {
                         "        \"eventName\": [\"Name1\",\"Name2\",\"Name3\",\"Name4\",\"Name5\",\"Name6\"]\n" +
                         "    }\n" +
                         "}");
-        assertEquals(35, machine.approximateObjectCount());
+        assertEquals(35, machine.approximateObjectCount(10000));
 
 
         machine.addRule("rule-with-six-more-elements",
@@ -2353,7 +2531,7 @@ public class MachineTest {
                         "        \"eventName\": [\"Name7\",\"Name8\",\"Name9\",\"Name10\",\"Name11\",\"Name12\"]\n" +
                         "    }\n" +
                         "}");
-        assertEquals(60, machine.approximateObjectCount());
+        assertEquals(60, machine.approximateObjectCount(10000));
     }
 
     @Test
@@ -2366,7 +2544,7 @@ public class MachineTest {
                         "        \"eventName\": [\"Name1\",\"Name2\",\"Name3\"]\n" +
                         "    }\n" +
                         "}");
-        assertEquals(35, machine.approximateObjectCount());
+        assertEquals(35, machine.approximateObjectCount(10000));
 
         machine.addRule("rule-with-two-more-source-and-eventNames",
                 "{\n" +
@@ -2375,7 +2553,7 @@ public class MachineTest {
                         "        \"eventName\": [\"Name1\",\"Name2\",\"Name3\",\"Name4\",\"Name5\"]\n" +
                         "    }\n" +
                         "}");
-        assertEquals(48, machine.approximateObjectCount());
+        assertEquals(48, machine.approximateObjectCount(10000));
 
         machine.addRule("rule-with-more-unique-source-and-eventNames",
                 "{\n" +
@@ -2384,7 +2562,246 @@ public class MachineTest {
                         "        \"eventName\": [\"Name6\",\"Name7\",\"Name8\",\"Name9\",\"Name10\"]\n" +
                         "    }\n" +
                         "}");
-        assertEquals(87, machine.approximateObjectCount());
+        assertEquals(87, machine.approximateObjectCount(10000));
     }
 
+    @Test
+    public void testLargeArrayRulesVsOR() throws Exception {
+        Machine machine = new Machine();
+        machine.addRule("rule1",
+                "{\n" +
+                        "  \"detail-type\" : [ \"jV4 Tij ny6H K9Z 6pALqePKFR\", \"jV4 RbfEU04 dSyRZH K9Z 6pALqePKFR\" ],\n" +
+                        "  \"source\" : [ \"e9C1c0.qRk\", \"e9C1c0.3FD\", \"e9C1c0.auf\", \"e9C1c0.L6kj0T\", \"e9C1c0.sTEi\", \"e9C1c0.ATnVwRJH4\", \"e9C1c0.gOTbM9V\", \"e9C1c0.6Foy06YCE03DGH\", \"e9C1c0.UD7QBnjzEQNRODz\", \"e9C1c0.DVTtb8c\", \"e9C1c0.hmXIsf6p\", \"e9C1c0.ANK\" ],\n" +
+                        "  \"detail\" : {\n" +
+                        "    \"eventSource\" : [ \"qRk.BeMfKctgml0y.s1x\", \"3FD.BeMfKctgml0y.s1x\", \"auf.BeMfKctgml0y.s1x\", \"L6kj0T.BeMfKctgml0y.s1x\", \"sTEi.BeMfKctgml0y.s1x\", \"ATnVwRJH4.BeMfKctgml0y.s1x\", \"gOTbM9V.BeMfKctgml0y.s1x\", \"6Foy06YCE03DGH.BeMfKctgml0y.s1x\", \"UD7QBnjzEQNRODz.BeMfKctgml0y.s1x\", \"DVTtb8c.BeMfKctgml0y.s1x\", \"hmXIsf6p.BeMfKctgml0y.s1x\", \"ANK.BeMfKctgml0y.s1x\" ],\n" +
+                        "    \"eventName\" : [ \"QK66sO0I4REUYb\", \"62HIWfGqrGTXpFotMy9xA\", \"7ucBUowmZxyA\", \"uo3piGS6CMHlcHDIzyNSr\", \"KCflDTVvp6krjt\", \"a9QrxONB6ZuU6m\", \"n8ASzCtTR8gjtkUtb\", \"bGZ94i5383n7hOOFF3XEkG3aUUY\", \"Dcw7pR9ikAMdOsAO6\", \"ccIkzb5umk6ffsWxT\", \"CrigfFIQshKoTi27S\", \"Tzi0k780pMtBV5FJV\", \"YS5tzAqzICdIajJcv\", \"ziLYvUKGSf1aqRZxU3ySvIYJ1HAQeF\", \"OgDBotcyXlPBJiGkzgEvx62KgIZ5Fc\", \"4tng21yDnIL8LJhaOptRG4d0yFm6WN\", \"aKnV3yMDVj2lq2Vfb\", \"HUhCGNVADyoDmWD9aCyzZe\", \"QHoYhQ1SDFMUNST7eHp4at\", \"QqCH8sS0zyQyPCVRitbCLHD0FEStOFXEQK\", \"YAzYOUP5qAqRiXLvKi2FGHXwOzLRTqF\", \"cyE74DukyW8Jx89B0mYfuuSwAhMV2XA\", \"5TGldWFzELapQ1gAaWbmzdozlLDy2PI\", \"9iXtpCTGB97r9QA\", \"oSZp5vZ52aD9wBcwIi\", \"OuP0M08FAxvonc5Pj2WTUEi\", \"LoQpJl4NmLXpzYou8FKT32s\", \"NUIhlIsVoqwXmXJKYYIo\", \"ZO0QKPO7T3Ic0WFaZzx5LkX\", \"ryuyOUuRIxS6fhIOtepxTgj\", \"l4x1SJQRJTAl0p3aQOc\", \"5wIJAxf3zR89u5WiKwQ\" ]\n" +
+                        "  }\n" +
+                        "}");
+        machine.addRule("rule2",
+                "{\n" +
+                        "  \"detail-type\" : [ \"jV4 Tij ny6H K9Z 6pALqePKFR\", \"jV4 RbfEU04 dSyRZH K9Z 6pALqePKFR\" ],\n" +
+                        "  \"source\" : [ \"0K9kV5.qRk\", \"0K9kV5.3FD\", \"0K9kV5.auf\", \"0K9kV5.L6kj0T\", \"0K9kV5.sTEi\", \"0K9kV5.ATnVwRJH4\", \"0K9kV5.gOTbM9V\", \"0K9kV5.6Foy06YCE03DGH\", \"0K9kV5.UD7QBnjzEQNRODz\", \"0K9kV5.DVTtb8c\", \"0K9kV5.hmXIsf6p\", \"0K9kV5.ANK\" ],\n" +
+                        "  \"detail\" : {\n" +
+                        "    \"eventSource\" : [ \"qRk.A2Ptm07Ncrg2.s1x\", \"3FD.A2Ptm07Ncrg2.s1x\", \"auf.A2Ptm07Ncrg2.s1x\", \"L6kj0T.A2Ptm07Ncrg2.s1x\", \"sTEi.A2Ptm07Ncrg2.s1x\", \"ATnVwRJH4.A2Ptm07Ncrg2.s1x\", \"gOTbM9V.A2Ptm07Ncrg2.s1x\", \"6Foy06YCE03DGH.A2Ptm07Ncrg2.s1x\", \"UD7QBnjzEQNRODz.A2Ptm07Ncrg2.s1x\", \"DVTtb8c.A2Ptm07Ncrg2.s1x\", \"hmXIsf6p.A2Ptm07Ncrg2.s1x\", \"ANK.A2Ptm07Ncrg2.s1x\" ],\n" +
+                        "    \"eventName\" : [ \"eqzMRqwMielUtv\", \"bIdx6KYCn3lpviFOEFWda\", \"oM0D40U9s6En\", \"pRqp3WZkboetrmWci51p6\", \"Sc0UwrhEureEzQ\", \"b0V8ou0Lp6PrEu\", \"VIC8D82ll1FIstePk\", \"qOBBxX2kntyHDwCSGBcOd8yloVo\", \"YXPayoGQlGoFk6nkR\", \"zGMY1DfzOQvwMNmK4\", \"xLUKKGRNglfr7RzbW\", \"wbPkaR8SjIKOWOFKU\", \"U2LAfXHBUgQ9BK6OE\", \"UsXW3IKWtjUun81O5A2RvYipYYiWPf\", \"1WMPVZQFB44o4hS4qsdtv1DrHOg6le\", \"NAZAKdRXGpyYF8aVNTvsQYB4mcevPP\", \"ZKbsTPS4xbrnbP3xG\", \"w52EAqErWZ49EcaFQBN3h7\", \"OI6eIIiVmrxJOVhiq7IENU\", \"QqCH8sS0zyQyPCVRitbCLHD0FEStOFXEQK\", \"EX8qET0anoJJMvoEcGLYMZJvkzSLch4\", \"cyE74DukyW8Jx89B0mYfuuSwAhMV2XA\", \"G2hyHJGzf41Q0hDdKVZ3oeLy4ZJl32S\", \"C6kqFl3fleB3zIF\", \"4fx5kxFt2KucxvrG0s\", \"1MewNMgaPjslx4l5ISCRWhn\", \"VI7aNjEq4a1J6QYF0wQ2pV6\", \"ns4SneqAxCuWNVoepM2Q\", \"1OdzCqyk4cQtQrVOd2Zf60v\", \"0MjQEBo5tW89oNlWktVbRfH\", \"soKlU8SKloI9YCAcssn\", \"3IqglcGMMVfJAin4tBg\" ]\n" +
+                        "  }\n" +
+                        "}");
+        machine.addRule("rule3",
+                "{\n" +
+                        "  \"detail-type\" : [ \"jV4 Tij ny6H K9Z 6pALqePKFR\", \"jV4 RbfEU04 dSyRZH K9Z 6pALqePKFR\" ],\n" +
+                        "  \"source\" : [ \"oeoNrI.qRk\", \"oeoNrI.3FD\", \"oeoNrI.auf\", \"oeoNrI.L6kj0T\", \"oeoNrI.sTEi\", \"oeoNrI.ATnVwRJH4\", \"oeoNrI.gOTbM9V\", \"oeoNrI.6Foy06YCE03DGH\", \"oeoNrI.UD7QBnjzEQNRODz\", \"oeoNrI.DVTtb8c\", \"oeoNrI.hmXIsf6p\", \"oeoNrI.ANK\" ],\n" +
+                        "  \"detail\" : {\n" +
+                        "    \"eventSource\" : [ \"qRk.6SOVnnlY9Y2B.s1x\", \"3FD.6SOVnnlY9Y2B.s1x\", \"auf.6SOVnnlY9Y2B.s1x\", \"L6kj0T.6SOVnnlY9Y2B.s1x\", \"sTEi.6SOVnnlY9Y2B.s1x\", \"ATnVwRJH4.6SOVnnlY9Y2B.s1x\", \"gOTbM9V.6SOVnnlY9Y2B.s1x\", \"6Foy06YCE03DGH.6SOVnnlY9Y2B.s1x\", \"UD7QBnjzEQNRODz.6SOVnnlY9Y2B.s1x\", \"DVTtb8c.6SOVnnlY9Y2B.s1x\", \"hmXIsf6p.6SOVnnlY9Y2B.s1x\", \"ANK.6SOVnnlY9Y2B.s1x\" ],\n" +
+                        "    \"eventName\" : [ \"wSjB92xeOBe2jf\", \"8owQcNCzpfsEjvv0zslQc\", \"XHSVWCs93l4m\", \"80jswkMW46QOp9ZasRC9i\", \"XoZakwvaiEbgvF\", \"A4oqVIUG1rS9G7\", \"9mU5hzwkFxHKDpo4A\", \"hI7uk7VTJB6gjcsRUoUIxuBPJaF\", \"UUFHA8cBHOvHk3lfO\", \"3cKTrqLEH5IMlsMDv\", \"TFaY7vCJG9EsxsjVd\", \"ZawowkBcOxdUsfgEs\", \"yOFNW7sxv0TNoMO6m\", \"Hp0AcGKGUlvM8lCgZqpiwOemCb2HSs\", \"SLDqS9ycYaKhJlzAdFC2bS92zrTpOO\", \"nAs966ixa5JQ9u2UlQOWh73PNMWehY\", \"tznZRlX80kDVIC8gH\", \"icLnBAt7pdp9aNDvOnqmMN\", \"NQHtpcQPybOVV0ZU4HInha\", \"QqCH8sS0zyQyPCVRitbCLHD0FEStOFXEQK\", \"6PXEaDOnRk7nmP6EhA9t2OE9g75eMmI\", \"cyE74DukyW8Jx89B0mYfuuSwAhMV2XA\", \"6n4FMCgGV1D09pLFanLGObbRBc1MXSH\", \"gk3lANJe2ZNiCdu\", \"5bL8gLCE5CE8pS0kRR\", \"hHZciQGDRCFKqf5S206HnMM\", \"HT14rl37Pa0ADgY5diV4cUa\", \"VcNAACSECOywtvlq42KR\", \"UhmN71rqtx6x0PagQr9Y4oU\", \"KX6z6AN1ApQq0HsSXbsyXgE\", \"RIo0rQN1PwKHiGnHcHP\", \"lhavqRt32TNqxjnfT2P\" ]\n" +
+                        "  }\n" +
+                        "}");
+        assertEquals(811, machine.approximateObjectCount(150000));
+
+        machine = new Machine();
+        machine.addRule("rule1",
+                "{\n" +
+                        "  \"$or\" : [ {\n" +
+                        "    \"source\" : [ \"e9C1c0.qRk\" ],\n" +
+                        "    \"detail\" : {\n" +
+                        "      \"eventName\" : [ \"QK66sO0I4REUYb\", \"62HIWfGqrGTXpFotMy9xA\" ]\n" +
+                        "    }\n" +
+                        "  }, {\n" +
+                        "    \"source\" : [ \"e9C1c0.3FD\" ],\n" +
+                        "    \"detail\" : {\n" +
+                        "      \"eventName\" : [ \"7ucBUowmZxyA\", \"uo3piGS6CMHlcHDIzyNSr\" ]\n" +
+                        "    }\n" +
+                        "  }, {\n" +
+                        "    \"source\" : [ \"e9C1c0.auf\" ],\n" +
+                        "    \"detail\" : {\n" +
+                        "      \"eventName\" : [ \"KCflDTVvp6krjt\", \"ixHBhtn3T99\" ]\n" +
+                        "    }\n" +
+                        "  }, {\n" +
+                        "    \"source\" : [ \"e9C1c0.L6kj0T\" ],\n" +
+                        "    \"detail\" : {\n" +
+                        "      \"eventName\" : [ \"Yuq5PWrpi8h2Hi\" ]\n" +
+                        "    }\n" +
+                        "  }, {\n" +
+                        "    \"source\" : [ \"e9C1c0.sTEi\" ],\n" +
+                        "    \"detail\" : {\n" +
+                        "      \"eventName\" : [ \"bGZ94i5383n7hOOFF3XEkG3aUUY\", \"Dcw7pR9ikAMdOsAO6\", \"ccIkzb5umk6ffsWxT\" ]\n" +
+                        "    }\n" +
+                        "  }, {\n" +
+                        "    \"source\" : [ \"e9C1c0.ATnVwRJH4\" ],\n" +
+                        "    \"detail\" : {\n" +
+                        "      \"eventName\" : [ \"CrigfFIQshKoTi27S\", \"Tzi0k780pMtBV5FJV\", \"YS5tzAqzICdIajJcv\", \"ziLYvUKGSf1aqRZxU3ySvIYJ1HAQeF\", \"OgDBotcyXlPBJiGkzgEvx62KgIZ5Fc\", \"4tng21yDnIL8LJhaOptRG4d0yFm6WN\" ]\n" +
+                        "    }\n" +
+                        "  }, {\n" +
+                        "    \"source\" : [ \"e9C1c0.gOTbM9V\", \"e9C1c0.6Foy06YCE03DGH\", \"e9C1c0.UD7QBnjzEQNRODz\" ],\n" +
+                        "    \"detail\" : {\n" +
+                        "      \"eventName\" : [ \"aKnV3yMDVj2lq2Vfb\", \"HUhCGNVADyoDmWD9aCyzZe\", \"QHoYhQ1SDFMUNST7eHp4at\", \"QqCH8sS0zyQyPCVRitbCLHD0FEStOFXEQK\", \"YAzYOUP5qAqRiXLvKi2FGHXwOzLRTqF\", \"cyE74DukyW8Jx89B0mYfuuSwAhMV2XA\", \"5TGldWFzELapQ1gAaWbmzdozlLDy2PI\" ]\n" +
+                        "    }\n" +
+                        "  }, {\n" +
+                        "    \"source\" : [ \"DVTtb8c.BeMfKctgml0y.s1x\" ],\n" +
+                        "    \"detail\" : {\n" +
+                        "      \"eventName\" : [ \"9iXtpCTGB97r9QA\", \"oSZp5vZ52aD9wBcwIi\", \"OuP0M08FAxvonc5Pj2WTUEi\", \"LoQpJl4NmLXpzYou8FKT32s\" ]\n" +
+                        "    }\n" +
+                        "  }, {\n" +
+                        "    \"source\" : [ \"e9C1c0.hmXIsf6p\" ],\n" +
+                        "    \"detail\" : {\n" +
+                        "      \"eventName\" : [ \"NUIhlIsVoqwXmXJKYYIo\", \"ZO0QKPO7T3Ic0WFaZzx5LkX\", \"ryuyOUuRIxS6fhIOtepxTgj\" ]\n" +
+                        "    }\n" +
+                        "  }, {\n" +
+                        "    \"source\" : [ \"e9C1c0.ANK\" ],\n" +
+                        "    \"detail\" : {\n" +
+                        "      \"eventName\" : [ \"l4x1SJQRJTAl0p3aQOc\", \"5wIJAxf3zR89u5WiKwQ\" ]\n" +
+                        "    }\n" +
+                        "  } ]\n" +
+                        "}");
+        machine.addRule("rule2",
+                "{\n" +
+                        "  \"$or\" : [ {\n" +
+                        "    \"source\" : [ \"0K9kV5.qRk\" ],\n" +
+                        "    \"detail\" : {\n" +
+                        "      \"eventName\" : [ \"eqzMRqwMielUtv\", \"bIdx6KYCn3lpviFOEFWda\" ]\n" +
+                        "    }\n" +
+                        "  }, {\n" +
+                        "    \"source\" : [ \"0K9kV5.3FD\" ],\n" +
+                        "    \"detail\" : {\n" +
+                        "      \"eventName\" : [ \"oM0D40U9s6En\", \"pRqp3WZkboetrmWci51p6\" ]\n" +
+                        "    }\n" +
+                        "  }, {\n" +
+                        "    \"source\" : [ \"0K9kV5.auf\" ],\n" +
+                        "    \"detail\" : {\n" +
+                        "      \"eventName\" : [ \"Sc0UwrhEureEzQ\", \"ixHBhtn3T99\" ]\n" +
+                        "    }\n" +
+                        "  }, {\n" +
+                        "    \"source\" : [ \"0K9kV5.L6kj0T\" ],\n" +
+                        "    \"detail\" : {\n" +
+                        "      \"eventName\" : [ \"Yuq5PWrpi8h2Hi\" ]\n" +
+                        "    }\n" +
+                        "  }, {\n" +
+                        "    \"source\" : [ \"0K9kV5.sTEi\" ],\n" +
+                        "    \"detail\" : {\n" +
+                        "      \"eventName\" : [ \"qOBBxX2kntyHDwCSGBcOd8yloVo\", \"YXPayoGQlGoFk6nkR\", \"zGMY1DfzOQvwMNmK4\" ]\n" +
+                        "    }\n" +
+                        "  }, {\n" +
+                        "    \"source\" : [ \"0K9kV5.ATnVwRJH4\" ],\n" +
+                        "    \"detail\" : {\n" +
+                        "      \"eventName\" : [ \"xLUKKGRNglfr7RzbW\", \"wbPkaR8SjIKOWOFKU\", \"U2LAfXHBUgQ9BK6OE\", \"UsXW3IKWtjUun81O5A2RvYipYYiWPf\", \"1WMPVZQFB44o4hS4qsdtv1DrHOg6le\", \"NAZAKdRXGpyYF8aVNTvsQYB4mcevPP\" ]\n" +
+                        "    }\n" +
+                        "  }, {\n" +
+                        "    \"source\" : [ \"0K9kV5.gOTbM9V\", \"0K9kV5.6Foy06YCE03DGH\", \"0K9kV5.UD7QBnjzEQNRODz\" ],\n" +
+                        "    \"detail\" : {\n" +
+                        "      \"eventName\" : [ \"ZKbsTPS4xbrnbP3xG\", \"w52EAqErWZ49EcaFQBN3h7\", \"OI6eIIiVmrxJOVhiq7IENU\", \"QqCH8sS0zyQyPCVRitbCLHD0FEStOFXEQK\", \"EX8qET0anoJJMvoEcGLYMZJvkzSLch4\", \"cyE74DukyW8Jx89B0mYfuuSwAhMV2XA\", \"G2hyHJGzf41Q0hDdKVZ3oeLy4ZJl32S\" ]\n" +
+                        "    }\n" +
+                        "  }, {\n" +
+                        "    \"source\" : [ \"DVTtb8c.A2Ptm07Ncrg2.s1x\" ],\n" +
+                        "    \"detail\" : {\n" +
+                        "      \"eventName\" : [ \"C6kqFl3fleB3zIF\", \"4fx5kxFt2KucxvrG0s\", \"1MewNMgaPjslx4l5ISCRWhn\", \"VI7aNjEq4a1J6QYF0wQ2pV6\" ]\n" +
+                        "    }\n" +
+                        "  }, {\n" +
+                        "    \"source\" : [ \"0K9kV5.hmXIsf6p\" ],\n" +
+                        "    \"detail\" : {\n" +
+                        "      \"eventName\" : [ \"ns4SneqAxCuWNVoepM2Q\", \"1OdzCqyk4cQtQrVOd2Zf60v\", \"0MjQEBo5tW89oNlWktVbRfH\" ]\n" +
+                        "    }\n" +
+                        "  }, {\n" +
+                        "    \"source\" : [ \"0K9kV5.ANK\" ],\n" +
+                        "    \"detail\" : {\n" +
+                        "      \"eventName\" : [ \"soKlU8SKloI9YCAcssn\", \"3IqglcGMMVfJAin4tBg\" ]\n" +
+                        "    }\n" +
+                        "  } ]\n" +
+                        "}");
+        machine.addRule("rule3",
+                "{\n" +
+                        "  \"$or\" : [ {\n" +
+                        "    \"source\" : [ \"oeoNrI.qRk\" ],\n" +
+                        "    \"detail\" : {\n" +
+                        "      \"eventName\" : [ \"wSjB92xeOBe2jf\", \"8owQcNCzpfsEjvv0zslQc\" ]\n" +
+                        "    }\n" +
+                        "  }, {\n" +
+                        "    \"source\" : [ \"oeoNrI.3FD\" ],\n" +
+                        "    \"detail\" : {\n" +
+                        "      \"eventName\" : [ \"XHSVWCs93l4m\", \"80jswkMW46QOp9ZasRC9i\" ]\n" +
+                        "    }\n" +
+                        "  }, {\n" +
+                        "    \"source\" : [ \"oeoNrI.auf\" ],\n" +
+                        "    \"detail\" : {\n" +
+                        "      \"eventName\" : [ \"XoZakwvaiEbgvF\", \"ixHBhtn3T99\" ]\n" +
+                        "    }\n" +
+                        "  }, {\n" +
+                        "    \"source\" : [ \"oeoNrI.L6kj0T\" ],\n" +
+                        "    \"detail\" : {\n" +
+                        "      \"eventName\" : [ \"Yuq5PWrpi8h2Hi\" ]\n" +
+                        "    }\n" +
+                        "  }, {\n" +
+                        "    \"source\" : [ \"oeoNrI.sTEi\" ],\n" +
+                        "    \"detail\" : {\n" +
+                        "      \"eventName\" : [ \"hI7uk7VTJB6gjcsRUoUIxuBPJaF\", \"UUFHA8cBHOvHk3lfO\", \"3cKTrqLEH5IMlsMDv\" ]\n" +
+                        "    }\n" +
+                        "  }, {\n" +
+                        "    \"source\" : [ \"oeoNrI.ATnVwRJH4\" ],\n" +
+                        "    \"detail\" : {\n" +
+                        "      \"eventName\" : [ \"TFaY7vCJG9EsxsjVd\", \"ZawowkBcOxdUsfgEs\", \"yOFNW7sxv0TNoMO6m\", \"Hp0AcGKGUlvM8lCgZqpiwOemCb2HSs\", \"SLDqS9ycYaKhJlzAdFC2bS92zrTpOO\", \"nAs966ixa5JQ9u2UlQOWh73PNMWehY\" ]\n" +
+                        "    }\n" +
+                        "  }, {\n" +
+                        "    \"source\" : [ \"oeoNrI.gOTbM9V\", \"oeoNrI.6Foy06YCE03DGH\", \"oeoNrI.UD7QBnjzEQNRODz\" ],\n" +
+                        "    \"detail\" : {\n" +
+                        "      \"eventName\" : [ \"tznZRlX80kDVIC8gH\", \"icLnBAt7pdp9aNDvOnqmMN\", \"NQHtpcQPybOVV0ZU4HInha\", \"QqCH8sS0zyQyPCVRitbCLHD0FEStOFXEQK\", \"6PXEaDOnRk7nmP6EhA9t2OE9g75eMmI\", \"cyE74DukyW8Jx89B0mYfuuSwAhMV2XA\", \"6n4FMCgGV1D09pLFanLGObbRBc1MXSH\" ]\n" +
+                        "    }\n" +
+                        "  }, {\n" +
+                        "    \"source\" : [ \"DVTtb8c.6SOVnnlY9Y2B.s1x\" ],\n" +
+                        "    \"detail\" : {\n" +
+                        "      \"eventName\" : [ \"gk3lANJe2ZNiCdu\", \"5bL8gLCE5CE8pS0kRR\", \"hHZciQGDRCFKqf5S206HnMM\", \"HT14rl37Pa0ADgY5diV4cUa\" ]\n" +
+                        "    }\n" +
+                        "  }, {\n" +
+                        "    \"source\" : [ \"oeoNrI.hmXIsf6p\" ],\n" +
+                        "    \"detail\" : {\n" +
+                        "      \"eventName\" : [ \"VcNAACSECOywtvlq42KR\", \"UhmN71rqtx6x0PagQr9Y4oU\", \"KX6z6AN1ApQq0HsSXbsyXgE\" ]\n" +
+                        "    }\n" +
+                        "  }, {\n" +
+                        "    \"source\" : [ \"oeoNrI.ANK\" ],\n" +
+                        "    \"detail\" : {\n" +
+                        "      \"eventName\" : [ \"RIo0rQN1PwKHiGnHcHP\", \"lhavqRt32TNqxjnfT2P\" ]\n" +
+                        "    }\n" +
+                        "  } ]\n" +
+                        "}");
+        assertEquals(608, machine.approximateObjectCount(10000));
+    }
+
+    @Test
+    public void testApproximateObjectCountEachKeyHasThreePatternsAddedOneAtATime() throws Exception {
+        Machine machine = new Machine();
+        testApproximateObjectCountEachKeyHasThreePatternsAddedOneAtATime(machine);
+        assertEquals(72216, machine.approximateObjectCount(500000));
+    }
+
+    @Test
+    public void testApproximateObjectCountEachKeyHasThreePatternsAddedOneAtATimeWithAdditionalNameStateReuse() throws Exception {
+        Machine machine = Machine.builder().withAdditionalNameStateReuse(true).build();
+        testApproximateObjectCountEachKeyHasThreePatternsAddedOneAtATime(machine);
+        assertEquals(136, machine.approximateObjectCount(500000));
+    }
+
+    private void testApproximateObjectCountEachKeyHasThreePatternsAddedOneAtATime(Machine machine) throws Exception {
+        machine.addRule("0", "{\"key1\": [\"a\"]}");
+        machine.addRule("1", "{\"key1\": [\"b\"]}");
+        machine.addRule("2", "{\"key1\": [\"c\"]}");
+        machine.addRule("3", "{\"key1\": [\"a\", \"b\", \"c\"], \"key2\": [\"d\"]}");
+        machine.addRule("4", "{\"key1\": [\"a\", \"b\", \"c\"], \"key2\": [\"e\"]}");
+        machine.addRule("5", "{\"key1\": [\"a\", \"b\", \"c\"], \"key2\": [\"f\"]}");
+        machine.addRule("6", "{\"key1\": [\"a\", \"b\", \"c\"], \"key2\": [\"d\", \"e\", \"f\"], \"key3\": [\"g\"]}");
+        machine.addRule("7", "{\"key1\": [\"a\", \"b\", \"c\"], \"key2\": [\"d\", \"e\", \"f\"], \"key3\": [\"h\"]}");
+        machine.addRule("8", "{\"key1\": [\"a\", \"b\", \"c\"], \"key2\": [\"d\", \"e\", \"f\"], \"key3\": [\"i\"]}");
+        machine.addRule("9", "{\"key1\": [\"a\", \"b\", \"c\"], \"key2\": [\"d\", \"e\", \"f\"], \"key3\": [\"g\", \"h\", \"i\"], \"key4\": [\"j\"]}");
+        machine.addRule("10", "{\"key1\": [\"a\", \"b\", \"c\"], \"key2\": [\"d\", \"e\", \"f\"], \"key3\": [\"g\", \"h\", \"i\"], \"key4\": [\"k\"]}");
+        machine.addRule("11", "{\"key1\": [\"a\", \"b\", \"c\"], \"key2\": [\"d\", \"e\", \"f\"], \"key3\": [\"g\", \"h\", \"i\"], \"key4\": [\"l\"]}");
+        machine.addRule("12", "{\"key1\": [\"a\", \"b\", \"c\"], \"key2\": [\"d\", \"e\", \"f\"], \"key3\": [\"g\", \"h\", \"i\"], \"key4\": [\"j\", \"k\", \"l\"], \"key5\": [\"m\"]}");
+        machine.addRule("13", "{\"key1\": [\"a\", \"b\", \"c\"], \"key2\": [\"d\", \"e\", \"f\"], \"key3\": [\"g\", \"h\", \"i\"], \"key4\": [\"j\", \"k\", \"l\"], \"key5\": [\"n\"]}");
+        machine.addRule("14", "{\"key1\": [\"a\", \"b\", \"c\"], \"key2\": [\"d\", \"e\", \"f\"], \"key3\": [\"g\", \"h\", \"i\"], \"key4\": [\"j\", \"k\", \"l\"], \"key5\": [\"o\"]}");
+        machine.addRule("15", "{\"key1\": [\"a\", \"b\", \"c\"], \"key2\": [\"d\", \"e\", \"f\"], \"key3\": [\"g\", \"h\", \"i\"], \"key4\": [\"j\", \"k\", \"l\"], \"key5\": [\"m\", \"n\", \"o\"], \"key6\": [\"p\"]}");
+        machine.addRule("16", "{\"key1\": [\"a\", \"b\", \"c\"], \"key2\": [\"d\", \"e\", \"f\"], \"key3\": [\"g\", \"h\", \"i\"], \"key4\": [\"j\", \"k\", \"l\"], \"key5\": [\"m\", \"n\", \"o\"], \"key6\": [\"q\"]}");
+        machine.addRule("17", "{\"key1\": [\"a\", \"b\", \"c\"], \"key2\": [\"d\", \"e\", \"f\"], \"key3\": [\"g\", \"h\", \"i\"], \"key4\": [\"j\", \"k\", \"l\"], \"key5\": [\"m\", \"n\", \"o\"], \"key6\": [\"r\"]}");
+        machine.addRule("18", "{\"key1\": [\"a\", \"b\", \"c\"], \"key2\": [\"d\", \"e\", \"f\"], \"key3\": [\"g\", \"h\", \"i\"], \"key4\": [\"j\", \"k\", \"l\"], \"key5\": [\"m\", \"n\", \"o\"], \"key6\": [\"p\", \"q\", \"r\"], \"key7\": [\"s\"]}");
+        machine.addRule("19", "{\"key1\": [\"a\", \"b\", \"c\"], \"key2\": [\"d\", \"e\", \"f\"], \"key3\": [\"g\", \"h\", \"i\"], \"key4\": [\"j\", \"k\", \"l\"], \"key5\": [\"m\", \"n\", \"o\"], \"key6\": [\"p\", \"q\", \"r\"], \"key7\": [\"t\"]}");
+        machine.addRule("20", "{\"key1\": [\"a\", \"b\", \"c\"], \"key2\": [\"d\", \"e\", \"f\"], \"key3\": [\"g\", \"h\", \"i\"], \"key4\": [\"j\", \"k\", \"l\"], \"key5\": [\"m\", \"n\", \"o\"], \"key6\": [\"p\", \"q\", \"r\"], \"key7\": [\"u\"]}");
+        machine.addRule("21", "{\"key1\": [\"a\", \"b\", \"c\"], \"key2\": [\"d\", \"e\", \"f\"], \"key3\": [\"g\", \"h\", \"i\"], \"key4\": [\"j\", \"k\", \"l\"], \"key5\": [\"m\", \"n\", \"o\"], \"key6\": [\"p\", \"q\", \"r\"], \"key7\": [\"s\", \"t\", \"u\"], \"key8\": [\"v\"]}");
+        machine.addRule("22", "{\"key1\": [\"a\", \"b\", \"c\"], \"key2\": [\"d\", \"e\", \"f\"], \"key3\": [\"g\", \"h\", \"i\"], \"key4\": [\"j\", \"k\", \"l\"], \"key5\": [\"m\", \"n\", \"o\"], \"key6\": [\"p\", \"q\", \"r\"], \"key7\": [\"s\", \"t\", \"u\"], \"key8\": [\"w\"]}");
+        machine.addRule("23", "{\"key1\": [\"a\", \"b\", \"c\"], \"key2\": [\"d\", \"e\", \"f\"], \"key3\": [\"g\", \"h\", \"i\"], \"key4\": [\"j\", \"k\", \"l\"], \"key5\": [\"m\", \"n\", \"o\"], \"key6\": [\"p\", \"q\", \"r\"], \"key7\": [\"s\", \"t\", \"u\"], \"key8\": [\"x\"]}");
+        machine.addRule("24", "{\"key1\": [\"a\", \"b\", \"c\"], \"key2\": [\"d\", \"e\", \"f\"], \"key3\": [\"g\", \"h\", \"i\"], \"key4\": [\"j\", \"k\", \"l\"], \"key5\": [\"m\", \"n\", \"o\"], \"key6\": [\"p\", \"q\", \"r\"], \"key7\": [\"s\", \"t\", \"u\"], \"key8\": [\"v\", \"w\", \"x\"], \"key9\": [\"y\"]}");
+    }
 }

@@ -4,14 +4,14 @@ import org.junit.Test;
 
 import java.nio.charset.StandardCharsets;
 
-import static software.amazon.event.ruler.input.DefaultParser.NINE_BYTE;
-import static software.amazon.event.ruler.input.DefaultParser.ZERO_BYTE;
 import static org.junit.Assert.assertArrayEquals;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotEquals;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
+import static software.amazon.event.ruler.input.DefaultParser.NINE_BYTE;
+import static software.amazon.event.ruler.input.DefaultParser.ZERO_BYTE;
 
 public class MultiByteTest {
 
@@ -109,12 +109,12 @@ public class MultiByteTest {
 
     @Test
     public void testEquals() {
-        assertTrue(new MultiByte((byte) 'a', (byte) 'b').equals(new MultiByte((byte) 'a', (byte) 'b')));
-        assertFalse(new MultiByte((byte) 'a', (byte) 'b').equals(new MultiByte((byte) 'b', (byte) 'a')));
-        assertFalse(new MultiByte((byte) 'a', (byte) 'b').equals(new MultiByte((byte) 'a', (byte) 'c')));
-        assertFalse(new MultiByte((byte) 'a', (byte) 'b').equals(new MultiByte((byte) 'a')));
-        assertFalse(new MultiByte((byte) 'a', (byte) 'b').equals(new MultiByte((byte) 'a', (byte) 'b', (byte) 'c')));
-        assertFalse(new MultiByte((byte) 'a', (byte) 'b').equals(new Object()));
+        assertEquals(new MultiByte((byte) 'a', (byte) 'b'), new MultiByte((byte) 'a', (byte) 'b'));
+        assertNotEquals(new MultiByte((byte) 'a', (byte) 'b'), new MultiByte((byte) 'b', (byte) 'a'));
+        assertNotEquals(new MultiByte((byte) 'a', (byte) 'b'), new MultiByte((byte) 'a', (byte) 'c'));
+        assertNotEquals(new MultiByte((byte) 'a', (byte) 'b'), new MultiByte((byte) 'a'));
+        assertNotEquals(new MultiByte((byte) 'a', (byte) 'b'), new MultiByte((byte) 'a', (byte) 'b', (byte) 'c'));
+        assertNotEquals(new MultiByte((byte) 'a', (byte) 'b'), new Object());
     }
 
     @Test

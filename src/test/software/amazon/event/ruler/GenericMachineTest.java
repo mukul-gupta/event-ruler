@@ -2,7 +2,8 @@ package software.amazon.event.ruler;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import java.io.IOException;
+import org.junit.Test;
+
 import java.nio.file.FileSystems;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -10,7 +11,6 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.stream.Stream;
-import org.junit.Test;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
@@ -118,7 +118,7 @@ public class GenericMachineTest {
         return new String(Files.readAllBytes(path));
     }
 
-    public static JsonNode readAsTree(String jsonName) throws Exception, IOException {
+    public static JsonNode readAsTree(String jsonName) throws Exception {
         return  new ObjectMapper().readTree(readData(jsonName));
     }
 
@@ -200,13 +200,21 @@ public class GenericMachineTest {
         assertEquals(r4, r4AC);
     }
 
+    @Test
+    public void testBuilderNonString() throws Exception {
+      GenericMachine<Integer> machine = GenericMachine.<Integer>builder().build();
+      machine.addRule(100, "{ \"key\" : [ 5 ] }");
+      List<Integer> result = machine.rulesForEvent(new String[]{"key", "5"});
+      assertEquals(result.get(0), (Integer)100);
+    }
+
     // create a customized class as T
     // TODO: Figure out what these unused fields are for and either finish what was started here, or discard it
     public static final class SimpleFilter {
-        private String filterId;
-        private String filterExpression;
-        private List<String> downChannels;
-        private long lastUpdatedMs;
+        private final String filterId;
+        private final String filterExpression;
+        private final List<String> downChannels;
+        private final long lastUpdatedMs;
 
         SimpleFilter(String clientId, String filterId, String filterExpression,
                             List<String> downChannels, long lastUpdatedMs) {

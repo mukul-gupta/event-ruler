@@ -32,7 +32,6 @@ import static org.junit.Assert.assertNull;
  *  There are two slightly varying versions, citylots.json.gz and citylots2.json.gz.  Between the two of them they
  *  total ~400Mbytes, which makes Ruler a little slow to check out from git.
  */
-
 public class Benchmarks {
 
     // original citylots
@@ -41,7 +40,7 @@ public class Benchmarks {
     // revised citylots with structured arrays
     private static final String CITYLOTS_2 = "src/test/data/citylots2.json.gz";
 
-    private final String[] EXACT_RULES = {
+    public static final String[] EXACT_RULES = {
             "{\n" +
                     "  \"properties\": {\n" +
                     "    \"MAPBLKLOT\": [ \"1430022\" ]\n" +
@@ -70,7 +69,7 @@ public class Benchmarks {
     };
     private final int[] EXACT_MATCHES = { 1, 101, 35, 655, 1 };
 
-    private final String[] WILDCARD_RULES = {
+    public static final String[] WILDCARD_RULES = {
             "{\n" +
                     "  \"properties\": {\n" +
                     "    \"MAPBLKLOT\": [ { \"wildcard\": \"143*\" } ]\n" +
@@ -99,7 +98,7 @@ public class Benchmarks {
     };
     private final int[] WILDCARD_MATCHES = { 490, 713, 43, 2540, 1 };
 
-    private final String[] PREFIX_RULES = {
+    public static final String[] PREFIX_RULES = {
       "{\n" +
               "  \"properties\": {\n" +
               "    \"STREET\": [ { \"prefix\": \"AC\" } ]\n" +
@@ -128,7 +127,36 @@ public class Benchmarks {
     };
     private final int[] PREFIX_MATCHES = { 24, 442, 38, 2387, 328 };
 
-    private final String[] SUFFIX_RULES = {
+    public static final String[] PREFIX_EQUALS_IGNORE_CASE_RULES = {
+            "{\n" +
+                    "  \"properties\": {\n" +
+                    "    \"STREET\": [ { \"prefix\": { \"equals-ignore-case\": \"Ac\" } } ]\n" +
+                    "  }\n" +
+                    "}",
+            "{\n" +
+                    "  \"properties\": {\n" +
+                    "    \"STREET\": [ { \"prefix\": { \"equals-ignore-case\": \"bL\" } } ]\n" +
+                    "  }\n" +
+                    "}",
+            "{\n" +
+                    "  \"properties\": {\n" +
+                    "    \"STREET\": [ { \"prefix\": { \"equals-ignore-case\": \"dR\" } } ]\n" +
+                    "  }\n" +
+                    "}",
+            "{\n" +
+                    "  \"properties\": {\n" +
+                    "    \"STREET\": [ { \"prefix\": { \"equals-ignore-case\": \"Fu\" } } ]\n" +
+                    "  }\n" +
+                    "}",
+            "{\n" +
+                    "  \"properties\": {\n" +
+                    "    \"STREET\": [ { \"prefix\": { \"equals-ignore-case\": \"rH\" } } ]\n" +
+                    "  }\n" +
+                    "}"
+    };
+    private final int[] PREFIX_EQUALS_IGNORE_CASE_MATCHES = { 24, 442, 38, 2387, 328 };
+
+    public static final String[] SUFFIX_RULES = {
             "{\n" +
                     "  \"properties\": {\n" +
                     "    \"STREET\": [ { \"suffix\": \"ON\" } ]\n" +
@@ -157,7 +185,36 @@ public class Benchmarks {
     };
     private final int[] SUFFIX_MATCHES = { 17921, 871, 13, 1963, 682 };
 
-    private final String[] EQUALS_IGNORE_CASE_RULES = {
+    public static final String[] SUFFIX_EQUALS_IGNORE_CASE_RULES = {
+            "{\n" +
+                    "  \"properties\": {\n" +
+                    "    \"STREET\": [ { \"suffix\": { \"equals-ignore-case\": \"oN\" } } ]\n" +
+                    "  }\n" +
+                    "}",
+            "{\n" +
+                    "  \"properties\": {\n" +
+                    "    \"STREET\": [ { \"suffix\": { \"equals-ignore-case\": \"Ke\" } } ]\n" +
+                    "  }\n" +
+                    "}",
+            "{\n" +
+                    "  \"properties\": {\n" +
+                    "    \"STREET\": [ { \"suffix\": { \"equals-ignore-case\": \"mM\" } } ]\n" +
+                    "  }\n" +
+                    "}",
+            "{\n" +
+                    "  \"properties\": {\n" +
+                    "    \"STREET\": [ { \"suffix\": { \"equals-ignore-case\": \"InG\" } } ]\n" +
+                    "  }\n" +
+                    "}",
+            "{\n" +
+                    "  \"properties\": {\n" +
+                    "    \"STREET\": [ { \"suffix\": { \"equals-ignore-case\": \"gO\" } } ]\n" +
+                    "  }\n" +
+                    "}"
+    };
+    private final int[] SUFFIX_EQUALS_IGNORE_CASE_MATCHES = { 17921, 871, 13, 1963, 682 };
+
+    public static final String[] EQUALS_IGNORE_CASE_RULES = {
             "{\n" +
                     "  \"properties\": {\n" +
                     "    \"STREET\": [ { \"equals-ignore-case\": \"jefferson\" } ]\n" +
@@ -186,7 +243,7 @@ public class Benchmarks {
     };
     private final int[] EQUALS_IGNORE_CASE_MATCHES = { 131, 211, 1758, 825, 116386 };
 
-    private final String[] COMPLEX_ARRAYS_RULES = {
+    public static final String[] COMPLEX_ARRAYS_RULES = {
       "{\n" +
               "  \"geometry\": {\n" +
               "    \"type\": [ \"Polygon\" ],\n" +
@@ -225,9 +282,9 @@ public class Benchmarks {
               "  }\n" +
               "}"
     };
-    private final int[] COMPLEX_ARRAYS_MATCHES = { 227, 2, 149444, 64368, 127485 };
+    private final int[] COMPLEX_ARRAYS_MATCHES = { 218, 1, 149446, 64368, 127485 };
 
-    private final String[] NUMERIC_RULES = {
+    public static final String[] NUMERIC_RULES = {
             "{\n" +
                     "  \"geometry\": {\n" +
                     "    \"type\": [ \"Polygon\" ],\n" +
@@ -266,9 +323,9 @@ public class Benchmarks {
                     "  }\n" +
                     "}"
     };
-    private final int[] NUMERIC_MATCHES = { 8, 120, 148943, 64120, 127053 };
+    private final int[] NUMERIC_MATCHES = { 2, 120, 148948, 64120, 127053 };
 
-    private final String[] ANYTHING_BUT_RULES = {
+    public static final String[] ANYTHING_BUT_RULES = {
       "{\n" +
               "  \"properties\": {\n" +
               "    \"STREET\": [ { \"anything-but\": [ \"FULTON\" ] } ]\n" +
@@ -297,15 +354,15 @@ public class Benchmarks {
     };
     private final int[] ANYTHING_BUT_MATCHES = { 211158, 210411, 96682, 120, 210615 };
 
-    private final String[] ANYTHING_BUT_IGNORE_CASE_RULES = {
+    public static final String[] ANYTHING_BUT_IGNORE_CASE_RULES = {
       "{\n" +
               "  \"properties\": {\n" +
               "    \"STREET\": [ { \"anything-but\": {\"equals-ignore-case\": [ \"Fulton\" ] } } ]\n" +
               "  }\n" +
-              "}", 
+              "}",
       "{\n" +
               "  \"properties\": {\n" +
-              "    \"STREET\": [ { \"anything-but\": {\"equals-ignore-case\": [ \"Mason\" ] } } ]\n" + 
+              "    \"STREET\": [ { \"anything-but\": {\"equals-ignore-case\": [ \"Mason\" ] } } ]\n" +
               "  }\n" +
               "}",
       "{\n" +
@@ -321,13 +378,13 @@ public class Benchmarks {
       "{\n" +
               "  \"properties\": {\n" +
               "    \"FROM_ST\": [ { \"anything-but\": {\"equals-ignore-case\": [ \"441\" ] } } ]\n" +
-              "  }\n" +  
-              "}"   
-    };              
+              "  }\n" +
+              "}"
+    };
     private final int[] ANYTHING_BUT_IGNORE_CASE_MATCHES = { 211158, 210411, 96682, 120, 210615 };
 
 
-    private final String[] ANYTHING_BUT_PREFIX_RULES = {
+    public static final String[] ANYTHING_BUT_PREFIX_RULES = {
       "{\n" +
               "  \"properties\": {\n" +
               "    \"STREET\": [ { \"anything-but\": {\"prefix\": \"FULTO\" } } ]\n" +
@@ -356,7 +413,7 @@ public class Benchmarks {
     };
     private final int[] ANYTHING_BUT_PREFIX_MATCHES = { 211158, 210118, 96667, 120, 209091 };
 
-    private final String[] ANYTHING_BUT_SUFFIX_RULES = {
+    public static final String[] ANYTHING_BUT_SUFFIX_RULES = {
       "{\n" +
               "  \"properties\": {\n" +
               "    \"STREET\": [ { \"anything-but\": {\"suffix\": \"ULTON\" } } ]\n" +
@@ -384,6 +441,35 @@ public class Benchmarks {
               "}"
     };
     private final int[] ANYTHING_BUT_SUFFIX_MATCHES = { 211136, 210411, 94908, 0, 209055 };
+
+    public static final String[] ANYTHING_BUT_WILDCARD_RULES = {
+            "{\n" +
+                    "  \"properties\": {\n" +
+                    "    \"MAPBLKLOT\": [ { \"anything-but\": {\"wildcard\": \"143*\" } } ]\n" +
+                    "  }" +
+                    "}",
+            "{\n" +
+                    "  \"properties\": {\n" +
+                    "    \"MAPBLKLOT\": [ { \"anything-but\": {\"wildcard\": \"2*0*1*7\" } } ]\n" +
+                    "  }\n" +
+                    "}",
+            "{\n" +
+                    "  \"properties\": {\n" +
+                    "    \"MAPBLKLOT\": [ { \"anything-but\": {\"wildcard\": \"*218\" } } ]\n" +
+                    "  }\n" +
+                    "}",
+            "{\n" +
+                    "  \"properties\": {\n" +
+                    "    \"MAPBLKLOT\": [ { \"anything-but\": {\"wildcard\": \"3*5*2\" } } ]\n" +
+                    "  }\n" +
+                    "}",
+            "{\n" +
+                    "  \"properties\": {\n" +
+                    "    \"MAPBLKLOT\": [ { \"anything-but\": {\"wildcard\": \"VA*IL\" } } ]\n" +
+                    "  }\n" +
+                    "}"
+    };
+    private final int[] ANYTHING_BUT_WILDCARD_MATCHES = { 212578, 212355, 213025, 210528, 213067 };
 
     // This needs to be run with -Xms2g -Xmx2g (Dunno about the 2g but the same Xms and Xmx, and big enough
     //  to hold several copies of the 200M in citylots2
@@ -426,14 +512,14 @@ public class Benchmarks {
 
         System.gc();
         long memBefore = Runtime.getRuntime().freeMemory();
-        int sizeBefore = mm.approximateObjectCount();
+        int sizeBefore = mm.approximateObjectCount(Integer.MAX_VALUE);
         System.out.printf("Before: %.1f (%d)\n", 1.0 * memBefore / 1000000, sizeBefore);
         for (int i = 0; i < rules.size(); i++) {
             mm.addRule("mm" + i, rules.get(i));
         }
         System.gc();
         long memAfter = Runtime.getRuntime().freeMemory();
-        int sizeAfter = mm.approximateObjectCount();
+        int sizeAfter = mm.approximateObjectCount(Integer.MAX_VALUE);
         System.out.printf("After: %.1f (%d)\n", 1.0 * memAfter / 1000000, sizeAfter);
         int perRuleMem = (int) ((1.0 * (memAfter - memBefore)) / rules.size());
         int perRuleSize = (int) ((1.0 * (sizeAfter - sizeBefore)) / rules.size());
@@ -444,7 +530,7 @@ public class Benchmarks {
     // This needs to be run with -Xms2g -Xmx2g
     // Only use exact match to verify exact match memory optimization change.
     @Test
-    public void exactRuleMemoryBemchmark() throws Exception {
+    public void exactRuleMemoryBenchmark() throws Exception {
 
         // 10 random field names
         String[] fieldNames = new String[NUMBER_OF_FIELD_NAMES];
@@ -486,6 +572,52 @@ public class Benchmarks {
         int perRuleSize = (int) ((1.0 * (sizeAfter - sizeBefore)) / rules.size());
         System.out.println("Per rule: " + perRuleMem + " (" + perRuleSize + ")");
         rules.clear();
+    }
+
+    @Test
+    public void lowNameStateReuseMemoryBenchmark() throws Exception {
+        Machine machine = new Machine();
+        System.out.println("Low NameState Reuse Memory Benchmark");
+        nameStateReuseMemoryBenchmark(machine);
+    }
+
+    @Test
+    public void highNameStateReuseMemoryBenchmark() throws Exception {
+        Machine machine = Machine.builder().withAdditionalNameStateReuse(true).build();
+        System.out.println("High NameState Reuse Memory Benchmark");
+        nameStateReuseMemoryBenchmark(machine);
+    }
+
+    private void nameStateReuseMemoryBenchmark(Machine machine) throws Exception {
+        int maxKeys = 256;
+        System.gc();
+        long memBefore = Runtime.getRuntime().freeMemory();
+        int sizeBefore = machine.approximateObjectCount();
+        System.out.printf("Before: %.1f (%d)\n", 1.0 * memBefore / 1000000, sizeBefore);
+
+        // For a readable version with a similar setup to the rules being added here, see
+        // MachineTest.testApproximateObjectCountEachKeyHasThreePatternsAddedOneAtATime. By adding one pattern at a time
+        // for each key, we create three different branches in the low NameState reuse test, but a single branch in the
+        // high NameState reuse test. So with low NameState reuse, Machine size grows exponentially with number of keys.
+        for (int i = 0; i < maxKeys; i++) {
+            StringBuilder prefix = new StringBuilder();
+            for (int j = 0; j < i; j++) {
+                int k = 3 * j;
+                prefix.append("\"key" + k + "\": [\"" + k + "\", \"" + (k + 1) + "\", \"" + (k + 2) + "\"], ");
+            }
+            int k = 3 * i;
+            machine.addRule("" + k, "{" + prefix + "\"key" + i + "\": [\"" + k + "\"]}");
+            machine.addRule("" + k + 1, "{" + prefix + "\"key" + i + "\": [\"" + (k + 1) + "\"]}");
+            machine.addRule("" + k + 2, "{" + prefix + "\"key" + i + "\": [\"" + (k + 2) + "\"]}");
+        }
+
+        System.gc();
+        long memAfter = Runtime.getRuntime().freeMemory();
+        int sizeAfter = machine.approximateObjectCount();
+        System.out.printf("After: %.1f (%d)\n", 1.0 * memAfter / 1000000, sizeAfter);
+        int perRuleMem = (int) ((1.0 * (memAfter - memBefore)) / (maxKeys * 3));
+        int perRuleSize = (int) ((1.0 * (sizeAfter - sizeBefore)) / (maxKeys * 3));
+        System.out.println("Per rule: " + perRuleMem + " (" + perRuleSize + ")");
     }
 
     @Test
@@ -588,9 +720,21 @@ public class Benchmarks {
 
         bm = new Benchmarker();
 
+        bm.addRules(PREFIX_EQUALS_IGNORE_CASE_RULES, PREFIX_EQUALS_IGNORE_CASE_MATCHES);
+        bm.run(citylots2);
+        System.out.println("PREFIX_EQUALS_IGNORE_CASE_RULES events/sec: " + String.format("%.1f", bm.getEPS()));
+
+        bm = new Benchmarker();
+
         bm.addRules(SUFFIX_RULES, SUFFIX_MATCHES);
         bm.run(citylots2);
         System.out.println("SUFFIX events/sec: " + String.format("%.1f", bm.getEPS()));
+
+        bm = new Benchmarker();
+
+        bm.addRules(SUFFIX_EQUALS_IGNORE_CASE_RULES, SUFFIX_EQUALS_IGNORE_CASE_MATCHES);
+        bm.run(citylots2);
+        System.out.println("SUFFIX_EQUALS_IGNORE_CASE_RULES events/sec: " + String.format("%.1f", bm.getEPS()));
 
         bm = new Benchmarker();
 
@@ -630,6 +774,12 @@ public class Benchmarks {
 
         bm = new Benchmarker();
 
+        bm.addRules(ANYTHING_BUT_WILDCARD_RULES, ANYTHING_BUT_WILDCARD_MATCHES);
+        bm.run(citylots2);
+        System.out.println("ANYTHING-BUT-WILDCARD events/sec: " + String.format("%.1f", bm.getEPS()));
+
+        bm = new Benchmarker();
+
         bm.addRules(COMPLEX_ARRAYS_RULES, COMPLEX_ARRAYS_MATCHES);
         bm.run(citylots2);
         System.out.println("COMPLEX_ARRAYS events/sec: " + String.format("%.1f", bm.getEPS()));
@@ -646,6 +796,7 @@ public class Benchmarks {
         bm.addRules(ANYTHING_BUT_IGNORE_CASE_RULES, ANYTHING_BUT_IGNORE_CASE_MATCHES);
         bm.addRules(ANYTHING_BUT_PREFIX_RULES, ANYTHING_BUT_PREFIX_MATCHES);
         bm.addRules(ANYTHING_BUT_SUFFIX_RULES, ANYTHING_BUT_SUFFIX_MATCHES);
+        bm.addRules(ANYTHING_BUT_WILDCARD_RULES, ANYTHING_BUT_WILDCARD_MATCHES);
         bm.run(citylots2);
         System.out.println("PARTIAL_COMBO events/sec: " + String.format("%.1f", bm.getEPS()));
 
@@ -657,6 +808,7 @@ public class Benchmarks {
         bm.addRules(ANYTHING_BUT_IGNORE_CASE_RULES, ANYTHING_BUT_IGNORE_CASE_MATCHES);
         bm.addRules(ANYTHING_BUT_PREFIX_RULES, ANYTHING_BUT_PREFIX_MATCHES);
         bm.addRules(ANYTHING_BUT_SUFFIX_RULES, ANYTHING_BUT_SUFFIX_MATCHES);
+        bm.addRules(ANYTHING_BUT_WILDCARD_RULES, ANYTHING_BUT_WILDCARD_MATCHES);
         bm.addRules(COMPLEX_ARRAYS_RULES, COMPLEX_ARRAYS_MATCHES);
         bm.run(citylots2);
         System.out.println("COMBO events/sec: " + String.format("%.1f", bm.getEPS()));
@@ -782,8 +934,13 @@ public class Benchmarks {
     }
 
     private void readCityLots2() {
+        System.out.println("Reading citylots2");
+        readCityLots2(citylots2);
+        System.out.println("Read " + citylots2.size() + " events");
+    }
+
+    public static void readCityLots2(List<String> citylots2) {
         try {
-            System.out.println("Reading citylots2");
             final FileInputStream fileInputStream = new FileInputStream(CITYLOTS_2);
             final GZIPInputStream gzipInputStream = new GZIPInputStream(fileInputStream);
             BufferedReader cl2Reader = new BufferedReader(new InputStreamReader(gzipInputStream));
@@ -793,9 +950,7 @@ public class Benchmarks {
                 line = cl2Reader.readLine();
             }
             cl2Reader.close();
-            System.out.println("Read " + citylots2.size() + " events");
         } catch (Exception e) {
-            System.out.println("Can't find, current directory " + System.getProperty("user.dir"));
             throw new RuntimeException(e);
         }
     }

@@ -1,5 +1,11 @@
 # Event Ruler
 
+[![License](https://img.shields.io/github/license/aws/event-ruler.svg?color=blue&logo=apache)]([https://www.apache.org/licenses/LICENSE-2.0.html](https://github.com/aws/event-ruler/blob/main/LICENSE))
+[![Build](https://github.com/aws/event-ruler/actions/workflows/CI.yml/badge.svg)](https://github.com/aws/event-ruler/actions/workflows/CI.yml)
+[![Latest Release](https://img.shields.io/github/release/aws/event-ruler.svg?logo=github&style=flat-square)](https://github.com/aws/event-ruler/releases/latest)
+![Maven Central](https://img.shields.io/maven-central/v/software.amazon.event.ruler/event-ruler?logo=apachemaven)
+
+
 Event Ruler (called Ruler in rest of the doc for brevity) is a Java library 
 that allows matching **Rules** to **Events**. An event is a list of fields, which 
 may be given as name/value pairs or as a JSON object.  A rule associates event 
@@ -96,6 +102,15 @@ intersection between the event array and rule-array is non-empty.
 ```
 Prefix matches only work on string-valued fields.
 
+### Prefix equals-ignore-case matching
+
+```javascript
+{
+  "source": [ { "prefix": { "equals-ignore-case": "EC2" } } ]
+}
+```
+Prefix equals-ignore-case matches only work on string-valued fields.
+
 ### Suffix matching
 
 ```javascript
@@ -104,6 +119,15 @@ Prefix matches only work on string-valued fields.
 }
 ```
 Suffix matches only work on string-valued fields.
+
+### Suffix equals-ignore-case matching
+
+ ```javascript
+ {
+   "source": [ { "suffix": { "equals-ignore-case": "EC2" } } ]
+ }
+ ```
+Suffix equals-ignore-case matches only work on string-valued fields.
 
 ### Equals-ignore-case matching
 
@@ -130,8 +154,8 @@ actual backslash character. A backslash escaping any character other than asteri
 
 Anything-but matching does what the name says: matches anything *except* what's provided in the rule.
 
-Anything-but works with single string and numeric values or lists, which have to contain entirely strings or
-entirely numerics.  It also may be applied to a prefix match.
+Anything-but works with single string and numeric values or lists, which have to contain entirely strings or entirely
+numerics. It also may be applied to a prefix, suffix, or equals-ignore-case match of a string or a list of strings.
 
 Single anything-but (string, then numeric):
 ```javascript
@@ -174,11 +198,38 @@ Anything-but prefix:
 }
 ```
 
+Anything-but prefix list (strings):
+```javascript
+{
+  "detail": {
+    "state": [ { "anything-but": { "prefix": [ "init", "error" ] } } ]
+  }
+}
+```
+
 Anything-but suffix:
 ```javascript
 {
   "detail": {
     "instance-id": [ { "anything-but": { "suffix": "1234" } } ]
+  }
+}
+```
+
+Anything-but suffix list (strings):
+```javascript
+{
+  "detail": {
+    "instance-id": [ { "anything-but": { "suffix": [ "1234", "6789" ] } } ]
+  }
+}
+```
+
+Anything-but-ignore-case:
+```javascript
+{
+  "detail": {
+    "state": [ { "anything-but": {"equals-ignore-case": "Stopped" } } ]
   }
 }
 ```
@@ -190,7 +241,24 @@ Anything-but-ignore-case list (strings):
     "state": [ { "anything-but": {"equals-ignore-case": [ "Stopped", "OverLoaded" ] } } ]
   }
 }
+```
 
+Anything-but wildcard:
+```javascript
+{
+  "detail": {
+    "state": [ { "anything-but": { "wildcard": "*/bin/*.jar" } } ]
+  }
+}
+```
+
+Anything-but wildcard list (strings):
+```javascript
+{
+  "detail": {
+    "state": [ { "anything-but": { "wildcard": [ "*/bin/*.jar", "*/bin/*.class" ] } } ]
+  }
+}
 ```
 
 ### Numeric matching
@@ -205,10 +273,8 @@ Anything-but-ignore-case list (strings):
 ```
 
 Above, the references to `c-count`, `d-count`, and `x-limit` illustrate numeric matching,
-and only
-work with values that are JSON numbers.  Numeric matching is limited to value between
--5.0e9 and +5.0e9 inclusive, with 15 digits of precision, that is to say 6 digits
-to the right of the decimal point.
+and only work with values that are JSON numbers.  Numeric matching supports the same 
+precision and range as Java's `double` primitive which implements IEEE 754 `binary64` standard. 
 
 ### IP Address Matching
 ```javascript
@@ -310,7 +376,7 @@ The "$or" primitive to allow the customer directly describe the "Or" relationshi
 Ruler recognizes "Or" relationship **only** when the rule has met **all** below conditions:
 * There is "$or" on field attribute in the rule followed with an array – e.g. "$or": []
 * There are 2+ objects in the "$or" array at least : "$or": [{}, {}]
-* There has no filed name using Ruler keywords in Object of "$or" array, refer to RESERVED_FIELD_NAMES_IN_OR_RELATIONSHIP in `/src/main/software/amazon/event/ruler/Constants.java#L38`
+* There is no filed name using Ruler keywords in Object of "$or" array, refer to RESERVED_FIELD_NAMES_IN_OR_RELATIONSHIP in `/src/main/software/amazon/event/ruler/Constants.java#L38`
   for example, below rule will be not parsed as "Or" relationship because "numeric" and "prefix" are Ruler reserved keywords.
   ```
   { 
@@ -382,7 +448,7 @@ Nested "Or" and "And"
 }
 ```
 
-#### The backward compatibility of using "$or" as filed name in the rule
+#### The backward compatibility of using "$or" as field name in the rule
 "$or" is possibly already used as a normal key in some applications (though its likely rare). For these cases, 
 Ruler tries its best to maintain the backward compatibility. Only when the 3 conditions mentioned above, will 
 ruler change behaviour because it assumes your rule really wanted an OR and was mis-configured until today. For example, 
@@ -424,7 +490,7 @@ both arguments are provided as JSON strings.
 
 NOTE: There is another deprecated method called `Ruler.matches(event, rule)`which 
 should not be used as its results are inconsistent with `rulesForJSONEvent()` and 
-`rulesForEvent()`
+`rulesForEvent()`. See the documentation on `Ruler.matches(event, rule)` for details.
 
 ## Matching with a Machine
 
@@ -432,13 +498,14 @@ The matching time does not depend on the number of rules.  This is the best choi
 if you have multiple possible rules you want to select from, and especially
 if you have a way to store the compiled Machine.
 
-The matching time is impacted by the degree of non-determinism introduced by wildcard rules. Performance deteriorates as
-an increasing number of the wildcard rule prefixes match a theoretical worst-case event. To avoid this, wildcard rules
-pertaining to the same event field should avoid common prefixes leading up to their first wildcard character. If a
-common prefix is required, then use the minimum number of wildcard characters and limit repeating character sequences
-that occur following a wildcard character. MachineComplexityEvaluator can be used to evaluate a machine and determine
-the degree of non-determinism, or "complexity" (i.e. how many wildcard rule prefixes match a theoretical worst-case
-event). Here are some data points showing a typical decrease in performance for increasing complexity scores.
+The matching time is impacted by the degree of non-determinism caused by wildcard and anything-but-wildcard rules.
+Performance deteriorates as an increasing number of the wildcard rule prefixes match a theoretical worst-case event. To
+avoid this, wildcard rules pertaining to the same event field should avoid common prefixes leading up to their first
+wildcard character. If a common prefix is required, then use the minimum number of wildcard characters and limit
+repeating character sequences that occur following a wildcard character. MachineComplexityEvaluator can be used to
+evaluate a machine and determine the degree of non-determinism, or "complexity" (i.e. how many wildcard rule prefixes
+match a theoretical worst-case event). Here are some data points showing a typical decrease in performance for
+increasing complexity scores.
 
 - Complexity = 1, Events per Second = 140,000
 - Complexity = 17, Events per Second = 12,500
@@ -447,6 +514,76 @@ event). Here are some data points showing a typical decrease in performance for 
 - Complexity = 100, Events per Second = 1250
 - Complexity = 275, Events per Second = 100 (extrapolated data point)
 - Complexity = 650, Events per Second = 10 (extrapolated data point)
+
+It is important to limit machine complexity to protect your application. There are at least two different strategies for
+limiting machine complexity. Which one makes more sense may depend on your application.
+
+1. Aggregate Complexity. Create a machine using all rules, evaluate the complexity, and reject the rule set (or the
+   current rule being added) if it exceeds the threshold.
+2. Individual Complexity. Create a machine using just an individual rule (not all rules), evaluate the complexity, and
+   reject the rule if it exceeds the threshold. In addition, limit the number of rules that can be created that contain
+   a wildcard pattern.
+
+Strategy #1 is more ideal in that it measures the actual complexity of the machine containing all the rules. When
+possible, this strategy should be used. The downside is, let's say you have a control plane that allows the creation of
+one rule at a time, up to a very large number. Then for each of these control plane operations, you must load all the
+existing rules to perform the validation. This could be very expensive. It is also prone to race conditions.
+Strategy #2 is a compromise. The threshold used by strategy #2 will be lower than strategy #1 since it is a per-rule
+threshold. Let's say you want a machine's complexity, with all rules added, to be no more than 300. Then with
+strategy #2, for example, you could limit each single-rule machine to complexity of 10, and allow for 30 rules containing
+wildcard patterns. In an absolute worst case where complexity is perfectly additive (unlikely), this would lead to a
+machine with complexity of 300. The downside is that it is unlikely that the complexity will be perfectly additive, and
+so the number of wildcard-containing rules will likely be limited unnecessarily.
+
+For strategy #2, depending on how rules are stored, an additional attribute may need to be added to rules to indicate
+which ones are nondeterministic (i.e. contain wildcard patterns) in order to limit the number of wildcard-containing
+rules.
+
+The following is a code snippet illustrating how to limit complexity for a given pattern, like for strategy #2.
+
+```java
+public class Validate {
+    private void validate(String pattern, MachineComplexityEvaluator machineComplexityEvaluator) {
+        // If we cannot compile, then return exception.
+        List<Map<String, List<Patterns>>> compilationResult = Lists.newArrayList();
+        try {
+            compilationResult.addAll(JsonRuleCompiler.compile(pattern));
+        } catch (Exception e) {
+            InvalidPatternException internalException =
+                    EXCEPTION_FACTORY.invalidPatternException(e.getLocalizedMessage());
+            throw ExceptionMapper.mapToModeledException(internalException);
+        }
+
+        // Validate wildcard patterns. Look for wildcard patterns out of all patterns that have been used.
+        Machine machine = new Machine();
+        int i = 0;
+        for (Map<String, List<Patterns>> rule : compilationResult) {
+            if (containsWildcard(rule)) {
+                // Add rule to machine for complexity evaluation.
+                machine.addPatternRule(Integer.toString(++i), rule);
+            }
+        }
+
+        // Machine has all rules containing wildcard match types. See if the complexity is under the limit.
+        int complexity = machine.evaluateComplexity(machineComplexityEvaluator);
+        if (complexity > MAX_MACHINE_COMPLEXITY) {
+            InvalidPatternException internalException = EXCEPTION_FACTORY.invalidPatternException("Rule is too complex");
+            throw ExceptionMapper.mapToModeledException(internalException);
+        }
+    }
+    
+    private boolean containsWildcard(Map<String, List<Patterns>> rule) {
+        for (List<Patterns> fieldPatterns : rule.values()) {
+            for (Patterns fieldPattern : fieldPatterns) {
+                if (fieldPattern.type() == WILDCARD || fieldPattern.type() == ANYTHING_BUT_WILDCARD) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+}
+```
 
 The main class you'll interact with implements state-machine based rule
 matching.  The interesting methods are:
@@ -461,6 +598,44 @@ the strings it stored and returned were thought of as rule names.
 
 For safety, the type used to "name" rules should be immutable. If you change the content of an object while
 it's being used as a rule name, this may break the operation of Ruler.
+
+### Configuration
+
+The GenericMachine and Machine constructors optionally accept a GenericMachineConfiguration object, which exposes the
+following configuration options.
+
+#### additionalNameStateReuse
+Default: false
+Normally, NameStates are re-used for a given key subsequence and pattern if this key subsequence and pattern have been
+previously added, or if a pattern has already been added for the given key subsequence. Hence, by default, NameState
+re-use is opportunistic. But by setting this flag to true, NameState re-use will be forced for a key subsequence. This
+means that the first pattern being added for a key subsequence will re-use a NameState if that key subsequence has been
+added before. Meaning each key subsequence has a single NameState. This improves memory utilization exponentially in
+some cases but does lead to more sub-rules being stored in individual NameStates, which Ruler sometimes iterates over,
+which can cause a modest runtime performance regression. This defaults to false for backwards compatibility, but likely,
+all but the most latency sensitive of applications would benefit from setting this to true.
+
+Here's a simple example. Consider:
+
+```javascript
+machine.addRule("0", "{\"key1\": [\"a\", \"b\", \"c\"]}");
+```
+
+The pattern "a" creates a NameState, and then, even with additionalNameStateReuse=false, the second pattern ("b") and
+third pattern ("c") re-use that same NameState. But consider the following instead:
+
+```javascript
+machine.addRule("0", "{\"key1\": [\"a\"]}");
+machine.addRule("1", "{\"key1\": [\"b\"]}");
+machine.addRule("2", "{\"key1\": [\"c\"]}");
+```
+
+Now, with additionalNameStateReuse=false, we end up with three NameStates, because the first pattern encountered for a
+key subsequence on each rule addition will create a new NameState. So, "a", "b", and "c" all get their own NameStates.
+However, with additionalNameStateReuse=true, "a" will create a new NameState, then "b" and "c" will reuse this same
+NameState. This is accomplished by storing that we already have a NameState for the key subsequence "key1".
+
+Note that it doesn't matter if each addRule uses a different rule name or the same rule name.
 
 ### addRule()
 
@@ -529,18 +704,6 @@ names* section, you would have to call `deleteRule()` the same number of times,
 with the same associated patterns, to remove all references to that rule name
 from the machine.
 
-### approximateObjectCount()
-
-This method roughly the number of objects within the machine. It's value only varies as rule are added or
-removed. This is useful to identify large machines that potentially require loads of memory.
-As this method is dependent on number of internal objects, this counts may change when ruler library internals
-are changed. The method performs all of its calculation at runtime to avoid taking up memory and making the
-impact of large rule-machines worse. Its computation is intentionally NOT thread-safe to avoid blocking rule
-evaluations and machine changes. It means that if a parallel process is adding or removing from the machine,
-you may get a different results compared to when such parallel processes are complete. Also, as the library
-makes optimizations to its internals for some patterns (see `ShortcutTransition.java` for more details), you
-may also get different results depending on the order in which rules were added or removed.
-
 ### rulesForEvent() / rulesForJSONEvent()
 
 This method returns a `List<String>` for Machine (and `List<T>` for GenericMachine) which contains
@@ -570,6 +733,18 @@ event processing. If you do your own event processing and call `rulesForEvent()`
 with a pre-sorted list of name and values, that is faster still; but you may not
 be able to do the field-list preparation as fast as `rulesForJSONEvent()` does.
 
+### approximateObjectCount()
+
+This method roughly the number of objects within the machine. It's value only varies as rule are added or
+removed. This is useful to identify large machines that potentially require loads of memory.
+As this method is dependent on number of internal objects, this counts may change when ruler library internals
+are changed. The method performs all of its calculation at runtime to avoid taking up memory and making the
+impact of large rule-machines worse. Its computation is intentionally NOT thread-safe to avoid blocking rule
+evaluations and machine changes. It means that if a parallel process is adding or removing from the machine,
+you may get a different results compared to when such parallel processes are complete. Also, as the library
+makes optimizations to its internals for some patterns (see `ShortcutTransition.java` for more details), you
+may also get different results depending on the order in which rules were added or removed.
+
 ### The Patterns API
 
 If you think of your events as name/value pairs rather than nested JSON-style
@@ -579,11 +754,23 @@ static methods are useful.
 ```java
 public static ValuePatterns exactMatch(final String value);
 public static ValuePatterns prefixMatch(final String prefix);
+public static ValuePatterns prefixEqualsIgnoreCaseMatch(final String prefix);
 public static ValuePatterns suffixMatch(final String suffix);
+public static ValuePatterns suffixEqualsIgnoreCaseMatch(final String suffix);
 public static ValuePatterns equalsIgnoreCaseMatch(final String value);
 public static ValuePatterns wildcardMatch(final String value);
 public static AnythingBut anythingButMatch(final String anythingBut);
-public static AnythingBut anythingButPrefix(final String prefix);
+public static AnythingBut anythingButMatch(final Set<String> anythingButs);
+public static AnythingBut anythingButMatch(final double anythingBut);
+public static AnythingBut anythingButNumberMatch(final Set<Double> anythingButs);
+public static AnythingButValuesSet anythingButPrefix(final String prefix);
+public static AnythingButValuesSet anythingButPrefix(final Set<String> anythingButs);
+public static AnythingButValuesSet anythingButSuffix(final String suffix);
+public static AnythingButValuesSet anythingButSuffix(final Set<String> anythingButs);
+public static AnythingButValuesSet anythingButIgnoreCaseMatch(final String anythingBut);
+public static AnythingButValuesSet anythingButIgnoreCaseMatch(final Set<String> anythingButs);
+public static AnythingButValuesSet anythingButWildcard(final String value);
+public static AnythingButValuesSet anythingButWildcard(final Set<String> anythingButs);
 public static ValuePatterns numericEquals(final double val);
 public static Range lessThan(final double val);
 public static Range lessThanOrEqualTo(final double val);
@@ -725,10 +912,12 @@ counts the matches, yields the following on a 2019 MacBook:
 
 Events are processed at over 220K/second except for:
  - equals-ignore-case matches, which are processed at over 200K/second.
+ - prefix/equals-ignore-case matches, which are processed at over 200K/second.
+ - suffix/equals-ignore-case matches, which are processed at over 200K/second.
  - wildcard matches, which are processed at over 170K/second.
  - anything-but matches, which are processed at over 150K/second.
  - numeric matches, which are processed at over 120K/second.
- - complex array matches, which are processed at over 2.5K/second.
+ - complex array matches, which are processed at over 35K/second.
 
 ### Suggestions for better performance
 

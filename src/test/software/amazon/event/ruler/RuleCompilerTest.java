@@ -1,11 +1,16 @@
 package software.amazon.event.ruler;
 
+import com.fasterxml.jackson.core.JsonParseException;
+import org.junit.Test;
+
 import java.io.ByteArrayInputStream;
+import java.io.IOException;
 import java.io.InputStream;
 import java.io.StringReader;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -16,8 +21,6 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
-
-import org.junit.Test;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
@@ -36,6 +39,18 @@ public class RuleCompilerTest {
         String event = "{\"account\": 123456789012 }";
         m.addRule("r1", rule);
         assertEquals(1, m.rulesForJSONEvent(event).size());
+    }
+
+    @Test
+    public void testPrefixEqualsIgnoreCaseCompile() {
+        String json = "{\"a\": [ { \"prefix\": { \"equals-ignore-case\": \"child\" } } ] }";
+        assertNull("Good prefix equals-ignore-case should parse", RuleCompiler.check(json));
+    }
+
+    @Test
+    public void testSuffixEqualsIgnoreCaseCompile() {
+        String json = "{\"a\": [ { \"suffix\": { \"equals-ignore-case\": \"child\" } } ] }";
+        assertNull("Good suffix equals-ignore-case should parse", RuleCompiler.check(json));
     }
 
     @Test
@@ -94,7 +109,7 @@ public class RuleCompilerTest {
         for (Patterns p : l) {
             ValuePatterns vp = (ValuePatterns) p;
             if (p.type() == MatchType.NUMERIC_EQ) {
-                assertEquals(ComparableNumber.generate(1.0), vp.pattern());
+                assertEquals(ComparableNumber.generate("1.0"), vp.pattern());
             } else {
                 assertEquals("1", vp.pattern());
             }
@@ -179,6 +194,18 @@ public class RuleCompilerTest {
                 "{\"a\": [ { \"anything-but\": {\"equals-ignore-case\": [1, 2, 3] } } ] }", // no numbers allowed
                 "{\"a\": [ { \"equals-ignore-case\": 5 } ] }",
                 "{\"a\": [ { \"equals-ignore-case\": [ \"abc\" ] } ] }",
+                "{\"a\": [ { \"prefix\": { \"invalid-expression\": [ \"abc\" ] } } ] }",
+                "{\"a\": [ { \"prefix\": { \"equals-ignore-case\": 5 } } ] }",
+                "{\"a\": [ { \"prefix\": { \"equals-ignore-case\": [ \"abc\" ] } } ] }",
+                "{\"a\": [ { \"prefix\": { \"equals-ignore-case\": \"abc\", \"test\": \"def\" } } ] }",
+                "{\"a\": [ { \"prefix\": { \"equals-ignore-case\": \"abc\" }, \"test\": \"def\" } ] }",
+                "{\"a\": [ { \"prefix\": { \"equals-ignore-case\": [ 1, 2 3 ] } } ] }",
+                "{\"a\": [ { \"suffix\": { \"invalid-expression\": [ \"abc\" ] } } ] }",
+                "{\"a\": [ { \"suffix\": { \"equals-ignore-case\": 5 } } ] }",
+                "{\"a\": [ { \"suffix\": { \"equals-ignore-case\": [ \"abc\" ] } } ] }",
+                "{\"a\": [ { \"suffix\": { \"equals-ignore-case\": \"abc\", \"test\": \"def\" } } ] }",
+                "{\"a\": [ { \"suffix\": { \"equals-ignore-case\": \"abc\" }, \"test\": \"def\" } ] }",
+                "{\"a\": [ { \"suffix\": { \"equals-ignore-case\": [ 1, 2 3 ] } } ] }",
                 "{\"a\": [ { \"wildcard\": 5 } ] }",
                 "{\"a\": [ { \"wildcard\": [ \"abc\" ] } ] }"
         };
@@ -247,15 +274,15 @@ public class RuleCompilerTest {
                 "}}";
 
         Map<List<String>, List<Patterns>> expected = new HashMap<>();
-        expected.put(Arrays.asList("a1"), Arrays.asList(
-                Patterns.numericEquals(123),
+        expected.put(Collections.singletonList("a1"), Arrays.asList(
+                Patterns.numericEquals("123"),
                 Patterns.exactMatch("123"),
                 Patterns.exactMatch("\"child\""),
-                Range.between(0, true, 5, false)
+                Range.between("0", true, "5", false)
         ));
         expected.put(Arrays.asList("a2", "b", "c1"), Arrays.asList(
                 Patterns.suffixMatch("child\""),
-                Patterns.anythingButNumberMatch(Stream.of(111, 222, 333).map(Double::valueOf).collect(Collectors.toSet())),
+                Patterns.anythingButNumbersMatch(Stream.of(111, 222, 333).map(d -> Double.toString(d)).collect(Collectors.toSet())),
                 Patterns.anythingButPrefix("\"foo"),
                 Patterns.anythingButSuffix("ing\""),
                 Patterns.anythingButIgnoreCaseMatch("\"def\"")
@@ -272,20 +299,20 @@ public class RuleCompilerTest {
     @Test
     public void testNumericExpressions() {
         String[] goods = {
-                "[\"=\", 3.8]", "[\"=\", 0.00000033]", "[\"=\", -4e-8]", "[\"=\", 55555]",
-                "[\"<\", 3.8]", "[\"<\", 0.00000033]", "[\"<\", -4e-8]", "[\"<\", 55555]",
-                "[\">\", 3.8]", "[\">\", 0.00000033]", "[\">\", -4e-8]", "[\">\", 55555]",
-                "[\"<=\", 3.8]", "[\"<=\", 0.00000033]", "[\"<=\", -4e-8]", "[\"<=\", 55555]",
-                "[\">=\", 3.8]", "[\">=\", 0.00000033]", "[\">=\", -4e-8]", "[\">=\", 55555]",
+                "[\"=\", 3.8]", "[\"=\", 0.000033]", "[\"=\", -4e-6]", "[\"=\", 55555]", "[\"=\", 1E-320]",
+                "[\"<\", 3.8]", "[\"<\", 0.000033]", "[\"<\", -4e-6]", "[\"<\", 55555]", "[\"<\", 1E-320]",
+                "[\">\", 3.8]", "[\">\", 0.000033]", "[\">\", -4e-6]", "[\">\", 55555]", "[\">\", 1E-320]",
+                "[\"<=\", 3.8]", "[\"<=\", 0.000033]", "[\"<=\", -4e-6]", "[\"<=\", 55555]", "[\"<=\", 1E-320]",
+                "[\">=\", 3.8]", "[\">=\", 0.000033]", "[\">=\", -4e-6]", "[\">=\", 55555]", "[\">=\", 1E-320]",
                 "[\">\", 0, \"<\", 1]", "[\">=\", 0, \"<\", 1]",
                 "[\">\", 0, \"<=\", 1]", "[\">=\", 0, \"<=\", 1]"
         };
 
-        String[] bads = {
-                "[\"=\", true]", "[\"=\", 2.0e22]", "[\"=\", \"-4e-8\"]", "[\"=\"]",
-                "[\"<\", true]", "[\"<\", 2.0e22]", "[\"<\", \"-4e-8\"]", "[\"<\"]",
-                "[\">=\", true]", "[\">=\", 2.0e22]", "[\">=\", \"-4e-8\"]", "[\">=\"]",
-                "[\"<=\", true]", "[\"<=\", 2.0e22]", "[\"<=\", \"-4e-8\"]", "[\"<=\"]",
+        String[] bads = new String[]{
+                "[\"=\", true]", "[\"=\", 2.0e422]", "[\"=\", \"-4e-6\"]", "[\"=\"]", "[\"=\", 1E309]", "[\"=\", 1E-325]",
+                "[\"<\", true]", "[\"<\", 2.0e422]", "[\"<\", \"-4e-6\"]", "[\"<\"]", "[\"=\", 1E309]", "[\"=\", 1E-325]",
+                "[\">=\", true]", "[\">=\", 2.0e422]", "[\">=\", \"-4e-6\"]", "[\">=\"]", "[\"=\", 1E309]", "[\"=\", 1E-325]",
+                "[\"<=\", true]", "[\"<=\", 2.0e422]", "[\"<=\", \"-4e-6\"]", "[\"<=\"]", "[\"=\", 1E309]", "[\"=\", 1E-325]",
                 "[\"<>\", 1, \">\", 0]", "[\"==\", 1, \">\", 0]",
                 "[\"<\", 1, \">\", 0]", "[\">\", 1, \"<\", 1]",
                 "[\">\", 30, \"<\", 1]", "[\">\", 1, \"<\", 30, false]"
@@ -532,6 +559,30 @@ public class RuleCompilerTest {
 
         multiThreadedTestHelper(rules, events, 1);
 
+    }
+
+    @Test
+    public void testWildcardConsecutiveWildcards() throws IOException {
+        try {
+            RuleCompiler.compile("{\"key\": [{\"wildcard\": \"abc**def\"}]}");
+            fail("Expected JSONParseException");
+        } catch (JsonParseException e) {
+            assertEquals("Consecutive wildcard characters at pos 4\n" +
+                    " at [Source: (String)\"{\"key\": [{\"wildcard\": \"abc**def\"}]}\"; line: 1, column: 33]",
+                    e.getMessage());
+        }
+    }
+
+    @Test
+    public void testWildcardInvalidEscapeCharacter() throws IOException {
+        try {
+            RuleCompiler.compile("{\"key\": [{\"wildcard\": \"a*c\\def\"}]}");
+            fail("Expected JSONParseException");
+        } catch (JsonParseException e) {
+            assertEquals("Unrecognized character escape 'd' (code 100)\n" +
+                    " at [Source: (String)\"{\"key\": [{\"wildcard\": \"a*c\\def\"}]}\"; line: 1, column: 28]",
+                    e.getMessage());
+        }
     }
 
     private void multiThreadedTestHelper(List<String> rules,

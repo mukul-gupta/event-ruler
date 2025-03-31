@@ -1,17 +1,16 @@
 package software.amazon.event.ruler;
 
-import com.fasterxml.jackson.core.io.doubleparser.JavaDoubleParser;
 import software.amazon.event.ruler.input.InputByte;
 import software.amazon.event.ruler.input.InputCharacter;
 import software.amazon.event.ruler.input.InputCharacterType;
 import software.amazon.event.ruler.input.InputMultiByteSet;
 import software.amazon.event.ruler.input.MultiByte;
 
+import javax.annotation.concurrent.ThreadSafe;
 import java.nio.charset.StandardCharsets;
 import java.util.AbstractMap;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -20,20 +19,22 @@ import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
-import javax.annotation.concurrent.ThreadSafe;
 
 import static software.amazon.event.ruler.CompoundByteTransition.coalesce;
+import static software.amazon.event.ruler.MatchType.ANYTHING_BUT_SUFFIX;
+import static software.amazon.event.ruler.MatchType.EQUALS_IGNORE_CASE;
 import static software.amazon.event.ruler.MatchType.EXACT;
 import static software.amazon.event.ruler.MatchType.EXISTS;
 import static software.amazon.event.ruler.MatchType.SUFFIX;
-import static software.amazon.event.ruler.MatchType.ANYTHING_BUT_SUFFIX;
-
+import static software.amazon.event.ruler.MatchType.SUFFIX_EQUALS_IGNORE_CASE;
+import static software.amazon.event.ruler.input.DefaultParser.getParser;
+import static software.amazon.event.ruler.input.MultiByte.MAX_CONTINUATION_BYTE;
 import static software.amazon.event.ruler.input.MultiByte.MAX_FIRST_BYTE_FOR_ONE_BYTE_CHAR;
 import static software.amazon.event.ruler.input.MultiByte.MAX_FIRST_BYTE_FOR_TWO_BYTE_CHAR;
 import static software.amazon.event.ruler.input.MultiByte.MAX_NON_FIRST_BYTE;
+import static software.amazon.event.ruler.input.MultiByte.MIN_CONTINUATION_BYTE;
 import static software.amazon.event.ruler.input.MultiByte.MIN_FIRST_BYTE_FOR_ONE_BYTE_CHAR;
 import static software.amazon.event.ruler.input.MultiByte.MIN_FIRST_BYTE_FOR_TWO_BYTE_CHAR;
-import static software.amazon.event.ruler.input.DefaultParser.getParser;
 
 /**
  * Represents a UTF8-byte-level state machine that matches a Ruler state machine's field values.
@@ -45,7 +46,7 @@ class ByteMachine {
 
     // Only these match types support shortcuts during traversal.
     private static final Set<MatchType> SHORTCUT_MATCH_TYPES = Collections.unmodifiableSet(
-            new HashSet<>(Arrays.asList(EXACT)));
+            new HashSet<>(Collections.singletonList(EXACT)));
 
     private final ByteState startState = new ByteState();
     // For wildcard rule "*", the start state is a match.
@@ -84,33 +85,40 @@ class ByteMachine {
     // Multiple different next-namestate steps can result from  processing a single field value, for example
     //  "foot" matches "foot" exactly, "foo" as a prefix, and "hand" as an anything-but.  So, this
     //  method returns a list.
-    Set<NameStateWithPattern> transitionOn(String valString) {
+    Set<NameStateWithPattern> transitionOn(final String valString) {
 
         // not thread-safe, but this is only used in the scope of this method on one thread
         final Set<NameStateWithPattern> transitionTo = new HashSet<>();
-        boolean fieldValueIsNumeric = false;
-        if (hasNumeric.get() > 0) {
+
+        // Do CIDR matching if there is at least one IP pattern, then move on to NUMERIC or STRING matching below.
+        if (hasIP.get() > 0) {
             try {
-                final double numerically = JavaDoubleParser.parseDouble(valString);
-                valString = ComparableNumber.generate(numerically);
-                fieldValueIsNumeric = true;
-            } catch (Exception e) {
-                // no-op, couldn't treat this as a sensible number
-            }
-        } else if (hasIP.get() > 0) {
-            try {
-                // we'll try both the quoted and unquoted version to help people whose events aren't
-                //  in JSON
+                // we'll try both the quoted and unquoted version to help people whose events aren't in JSON
+                String ipString;
                 if (valString.startsWith("\"") && valString.endsWith("\"")) {
-                    valString = CIDR.ipToString(valString.substring(1, valString.length() -1));
+                    ipString = CIDR.ipToString(valString.substring(1, valString.length() -1));
                 } else {
-                    valString = CIDR.ipToString(valString);
+                    ipString = CIDR.ipToString(valString);
                 }
+                doTransitionOn(ipString, transitionTo, TransitionValueType.CIDR);
             } catch (IllegalArgumentException e) {
                 // no-op, couldn't treat this as an IP address
             }
         }
-        doTransitionOn(valString, transitionTo, fieldValueIsNumeric);
+
+        // Do just one of NUMERIC or STRING matching. Do NUMERIC if machine has numeric patterns and provided value
+        // is a number. Otherwise, do STRING. We'll still get the correct behavior even if there are both numeric and
+        // string patterns present as no value can satisfy both a numeric and a string pattern. This is due to string
+        // patterns starting/ending with a double quotation, where as numeric patterns never do.
+        if (hasNumeric.get() > 0) {
+            try {
+                doTransitionOn(ComparableNumber.generate(valString), transitionTo, TransitionValueType.NUMERIC);
+                return transitionTo;
+            } catch (Exception e) {
+                // no-op, couldn't treat this as a sensible number
+            }
+        }
+        doTransitionOn(valString, transitionTo, TransitionValueType.STRING);
         return transitionTo;
     }
 
@@ -136,15 +144,18 @@ class ByteMachine {
                 deleteAnythingButPattern((AnythingBut) pattern);
                 break;
             case ANYTHING_BUT_IGNORE_CASE:
-                assert pattern instanceof AnythingButEqualsIgnoreCase;
-                deleteAnythingButEqualsIgnoreCasePattern((AnythingButEqualsIgnoreCase) pattern);
+            case ANYTHING_BUT_PREFIX:
+            case ANYTHING_BUT_SUFFIX:
+            case ANYTHING_BUT_WILDCARD:
+                assert pattern instanceof AnythingButValuesSet;
+                deleteAnythingButValuesSetPattern((AnythingButValuesSet) pattern);
                 break;
             case EXACT:
             case NUMERIC_EQ:
             case PREFIX:
+            case PREFIX_EQUALS_IGNORE_CASE:
             case SUFFIX:
-            case ANYTHING_BUT_PREFIX:
-            case ANYTHING_BUT_SUFFIX:
+            case SUFFIX_EQUALS_IGNORE_CASE:
             case EQUALS_IGNORE_CASE:
             case WILDCARD:
                 assert pattern instanceof ValuePatterns;
@@ -168,7 +179,7 @@ class ByteMachine {
             deleteMatchStep(startState, 0, pattern, getParser().parse(pattern.type(), value)));
     }
 
-    private void deleteAnythingButEqualsIgnoreCasePattern(AnythingButEqualsIgnoreCase pattern) {
+    private void deleteAnythingButValuesSetPattern(AnythingButValuesSet pattern) {
         pattern.getValues().forEach(value ->
             deleteMatchStep(startState, 0, pattern, getParser().parse(pattern.type(), value)));
     }
@@ -314,7 +325,7 @@ class ByteMachine {
 
         // when bottom byte on forkOffset position < top byte in same position, there must be matches existing
         // in this state, go ahead to delete matches in the fork state.
-        for (byte bb : Range.digitSequence(range.bottom[forkOffset], range.top[forkOffset], false, false)) {
+        for (byte bb : Range.digitSequence(range.bottom[forkOffset], range.top[forkOffset], false, false, range.isCIDR)) {
             deleteMatches(getParser().parse(bb), forkState, range);
         }
 
@@ -325,7 +336,7 @@ class ByteMachine {
         // see explanation in addRangePattern(), we need delete state and match accordingly.
         for (int offsetB = forkOffset + 1; offsetB < (range.bottom.length - 1); offsetB++) {
             byte b = range.bottom[offsetB];
-            if (b < Constants.MAX_DIGIT) {
+            if (b < range.maxDigit()) {
                 while (lastMatchOffset < offsetB) {
                     state = findNextByteStateForRangePattern(state, range.bottom[lastMatchOffset]);
                     assert state != null : "state must be existing for this pattern";
@@ -334,7 +345,7 @@ class ByteMachine {
                     lastMatchOffset++;
                 }
                 assert lastMatchOffset == offsetB : "lastMatchOffset == offsetB";
-                for (byte bb : Range.digitSequence(b, Constants.MAX_DIGIT, false, true)) {
+                for (byte bb : Range.digitSequence(b, range.maxDigit(), false, true, range.isCIDR)) {
                     deleteMatches(getParser().parse(bb), state, range);
                 }
             }
@@ -344,7 +355,7 @@ class ByteMachine {
         // see explanation in addRangePattern(), we need to delete states and matches accordingly.
         final byte lastBottom = range.bottom[range.bottom.length - 1];
         final byte lastTop = range.top[range.top.length - 1];
-        if ((lastBottom < Constants.MAX_DIGIT) || !range.openBottom) {
+        if ((lastBottom < range.maxDigit()) || !range.openBottom) {
             while (lastMatchOffset < range.bottom.length - 1) {
                 state = findNextByteStateForRangePattern(state, range.bottom[lastMatchOffset]);
                 assert state != null : "state != null";
@@ -358,7 +369,7 @@ class ByteMachine {
             // unless the last digit is also at the fork position, fill in the extra matches due to
             //  the strictly-less-than condition (see discussion above)
             if (forkOffset < (range.bottom.length - 1)) {
-                for (byte bb : Range.digitSequence(lastBottom, Constants.MAX_DIGIT, false, true)) {
+                for (byte bb : Range.digitSequence(lastBottom, range.maxDigit(), false, true, range.isCIDR)) {
                     deleteMatches(getParser().parse(bb), state, range);
                 }
             }
@@ -370,7 +381,7 @@ class ByteMachine {
         lastMatchOffset = forkOffset;
         for (int offsetT = forkOffset + 1; offsetT < (range.top.length - 1); offsetT++) {
             byte b = range.top[offsetT];
-            if (b > '0') {
+            if (b > range.minDigit()) {
                 while (lastMatchOffset < offsetT) {
                     state = findNextByteStateForRangePattern(state, range.top[lastMatchOffset]);
                     assert state != null : "state must be existing for this pattern";
@@ -379,7 +390,7 @@ class ByteMachine {
                 }
                 assert lastMatchOffset == offsetT : "lastMatchOffset == offsetT";
 
-                for (byte bb : Range.digitSequence((byte) '0', range.top[offsetT], true, false)) {
+                for (byte bb : Range.digitSequence((byte) range.minDigit(), range.top[offsetT], true, false, range.isCIDR)) {
                     deleteMatches(getParser().parse(bb), state, range);
                 }
             }
@@ -387,7 +398,7 @@ class ByteMachine {
 
         // now for last "top" digit.
         // see explanation in addRangePattern(), we need to delete states and matches accordingly.
-        if ((lastTop > '0') || !range.openTop) {
+        if ((lastTop > range.minDigit()) || !range.openTop) {
             while (lastMatchOffset < range.top.length - 1) {
                 state = findNextByteStateForRangePattern(state, range.top[lastMatchOffset]);
                 assert state != null : "state != null";
@@ -402,7 +413,7 @@ class ByteMachine {
             // unless the last digit is also at the fork position, fill in the extra matches due to
             //  the strictly-less-than condition (see discussion above)
             if (forkOffset < (range.top.length - 1)) {
-                for (byte bb : Range.digitSequence((byte) '0', lastTop, true, false)) {
+                for (byte bb : Range.digitSequence((byte) range.minDigit(), lastTop, true, false, range.isCIDR)) {
                     deleteMatches(getParser().parse(bb), state, range);
                 }
             }
@@ -448,7 +459,7 @@ class ByteMachine {
     }
 
     private void doTransitionOn(final String valString, final Set<NameStateWithPattern> transitionTo,
-                                boolean fieldValueIsNumeric) {
+                                TransitionValueType valueType) {
         final Map<NameState, List<Patterns>> failedAnythingButs = new HashMap<>();
         final byte[] val = valString.getBytes(StandardCharsets.UTF_8);
 
@@ -484,16 +495,18 @@ class ByteMachine {
                             break;
                         case NUMERIC_EQ:
                             // only matches at last character
-                            if (fieldValueIsNumeric && valIndex == (val.length - 1)) {
+                            if (valueType == TransitionValueType.NUMERIC && valIndex == (val.length - 1)) {
                                 transitionTo.add(new NameStateWithPattern(match.getNextNameState(), match.getPattern()));
                             }
                             break;
 
                         case PREFIX:
+                        case PREFIX_EQUALS_IGNORE_CASE:
                             transitionTo.add(new NameStateWithPattern(match.getNextNameState(), match.getPattern()));
                             break;
                         case ANYTHING_BUT_SUFFIX:
                         case SUFFIX:
+                        case SUFFIX_EQUALS_IGNORE_CASE:
                         case EXISTS:
                             // we already harvested these matches via separate functions due to special matching
                             // requirements, so just ignore them here.
@@ -502,7 +515,8 @@ class ByteMachine {
                         case NUMERIC_RANGE:
                             // as soon as you see the match, you've matched
                             Range range = (Range) match.getPattern();
-                            if ((fieldValueIsNumeric && !range.isCIDR) || (!fieldValueIsNumeric && range.isCIDR)) {
+                            if ((valueType == TransitionValueType.NUMERIC && !range.isCIDR) ||
+                                    (valueType != TransitionValueType.NUMERIC && range.isCIDR)) {
                                 transitionTo.add(new NameStateWithPattern(match.getNextNameState(), match.getPattern()));
                             }
                             break;
@@ -510,11 +524,13 @@ class ByteMachine {
                         case ANYTHING_BUT:
                             AnythingBut anythingBut = (AnythingBut) match.getPattern();
                             // only applies if at last character
-                            if (valIndex == (val.length - 1) && anythingBut.isNumeric() == fieldValueIsNumeric) {
+                            if (valIndex == (val.length - 1) &&
+                                    anythingBut.isNumeric() == (valueType == TransitionValueType.NUMERIC)) {
                                 addToAnythingButsMap(failedAnythingButs, match.getNextNameState(), match.getPattern());
                             }
                             break;
                         case ANYTHING_BUT_IGNORE_CASE:
+                        case ANYTHING_BUT_WILDCARD:
                             // only applies if at last character
                             if (valIndex == (val.length - 1)) {
                                 addToAnythingButsMap(failedAnythingButs, match.getNextNameState(), match.getPattern());
@@ -538,8 +554,9 @@ class ByteMachine {
         }
 
         // This may look like premature optimization, but the first "if" here yields roughly 10x performance
-        // improvement.
-        if (!anythingButs.isEmpty()) {
+        // improvement. We exclude CIDR because the value will have been transformed, causing the anythingBut to always
+        // match. Wait for NUMERIC or STRING matching to harvest anythingBut matches.
+        if (!anythingButs.isEmpty() && valueType != TransitionValueType.CIDR) {
             for (Map.Entry<NameState, List<Patterns>> entry : anythingButs.entrySet()) {
                 boolean failedAnythingButsContainsKey = failedAnythingButs.containsKey(entry.getKey());
                 for (Patterns pattern : entry.getValue()) {
@@ -604,7 +621,7 @@ class ByteMachine {
                     // given we are traversing in reverse order (from right to left), only suffix matches are eligible
                     // to be collected.
                     MatchType patternType = match.getPattern().type();
-                    if (patternType == SUFFIX) {
+                    if (patternType == SUFFIX || patternType == SUFFIX_EQUALS_IGNORE_CASE) {
                         transitionTo.add(new NameStateWithPattern(match.getNextNameState(), match.getPattern()));
                     } else if (patternType == ANYTHING_BUT_SUFFIX) {
                         addToAnythingButsMap(failedAnythingButs, match.getNextNameState(), match.getPattern());
@@ -669,15 +686,18 @@ class ByteMachine {
                 assert pattern instanceof AnythingBut;
                 return addAnythingButPattern((AnythingBut) pattern, nameState);
             case ANYTHING_BUT_IGNORE_CASE:
-                assert pattern instanceof AnythingButEqualsIgnoreCase;
-                return addAnythingButEqualsIgnoreCasePattern((AnythingButEqualsIgnoreCase) pattern, nameState);
-
             case ANYTHING_BUT_SUFFIX:
             case ANYTHING_BUT_PREFIX:
+            case ANYTHING_BUT_WILDCARD:
+                assert pattern instanceof AnythingButValuesSet;
+                return addAnythingButValuesSetPattern((AnythingButValuesSet) pattern, nameState);
+
             case EXACT:
             case NUMERIC_EQ:
             case PREFIX:
+            case PREFIX_EQUALS_IGNORE_CASE:
             case SUFFIX:
+            case SUFFIX_EQUALS_IGNORE_CASE:
             case EQUALS_IGNORE_CASE:
             case WILDCARD:
                 assert pattern instanceof ValuePatterns;
@@ -711,7 +731,7 @@ class ByteMachine {
         return nameStateToBeReturned;
     }
 
-    private NameState addAnythingButEqualsIgnoreCasePattern(AnythingButEqualsIgnoreCase pattern, NameState nameState) {
+    private NameState addAnythingButValuesSetPattern(AnythingButValuesSet pattern, NameState nameState) {
 
         NameState nameStateToBeReturned = nameState;
         NameState nameStateChecker = null;
@@ -818,7 +838,8 @@ class ByteMachine {
             return false;
         }
 
-        if (!isNextCharacterFirstByteOfMultiByte(characters, i)) {
+        boolean isNextCharacterForSuffixMatch = isNextCharacterFirstContinuationByteForSuffixMatch(characters, i);
+        if (!isNextCharacterFirstByteOfMultiByte(characters, i) && !isNextCharacterForSuffixMatch) {
             // If we are in the midst of a multi-byte sequence, we know that we are dealing with single transitions.
             return false;
         }
@@ -834,7 +855,8 @@ class ByteMachine {
         // Parse the next Java character into lower and upper case representations. Check if there are multiple
         // multibytes (paths) and that there exists a transition that both lead to.
         String value = extractNextJavaCharacterFromInputCharacters(characters, i);
-        InputCharacter[] inputCharacters = getParser().parse(MatchType.EQUALS_IGNORE_CASE, value);
+        MatchType matchType = isNextCharacterForSuffixMatch ? SUFFIX_EQUALS_IGNORE_CASE : EQUALS_IGNORE_CASE;
+        InputCharacter[] inputCharacters = getParser().parse(matchType, value);
         ByteTransition transition = getTransition(byteState, inputCharacters[0]);
         return inputCharacters[0] instanceof InputMultiByteSet && transition != null;
     }
@@ -846,7 +868,54 @@ class ByteMachine {
         return firstByte > MAX_NON_FIRST_BYTE;
     }
 
+    private boolean isNextCharacterFirstContinuationByteForSuffixMatch(InputCharacter[] characters, int i) {
+        if (hasSuffix.get() <= 0) {
+            return false;
+        }
+        // If the previous byte is a continuation byte, this means that we're in the middle of a multi-byte sequence.
+        return isContinuationByte(characters, i) && !isContinuationByte(characters, i - 1);
+    }
+
+    private boolean isContinuationByte(InputCharacter[] characters, int i) {
+        if (i < 0) {
+            return false;
+        }
+        byte continuationByte = InputByte.cast(characters[i]).getByte();
+        // Continuation bytes have bit 7 set, and bit 6 should be unset
+        return continuationByte >= MIN_CONTINUATION_BYTE && continuationByte <= MAX_CONTINUATION_BYTE;
+    }
+
     private String extractNextJavaCharacterFromInputCharacters(InputCharacter[] characters, int i) {
+        if (isNextCharacterFirstByteOfMultiByte(characters, i)) {
+            return extractNextJavaCharacterFromInputCharactersForForwardArrays(characters, i);
+        } else {
+            return extractNextJavaCharacterFromInputCharactersForBackwardsArrays(characters, i);
+        }
+    }
+
+    private String extractNextJavaCharacterFromInputCharactersForBackwardsArrays(InputCharacter[] characters, int i) {
+        List<Byte> bytesList = new ArrayList<>();
+        for (int multiByteIndex = i; multiByteIndex < characters.length; multiByteIndex++) {
+            if (!isContinuationByte(characters, multiByteIndex)) {
+                // This is the last byte of the suffix char
+                bytesList.add(InputByte.cast(characters[multiByteIndex]).getByte());
+                break;
+            }
+            bytesList.add(InputByte.cast(characters[multiByteIndex]).getByte());
+        }
+        // Undoing the reverse on the byte array to get the valid char
+        return new String(reverseBytesList(bytesList), StandardCharsets.UTF_8);
+    }
+
+    private byte[] reverseBytesList(List<Byte> bytesList) {
+        byte[] byteArray = new byte[bytesList.size()];
+        for (int i = 0; i < bytesList.size(); i++) {
+            byteArray[bytesList.size() - i - 1] = bytesList.get(i);
+        }
+        return byteArray;
+    }
+
+    private static String extractNextJavaCharacterFromInputCharactersForForwardArrays(InputCharacter[] characters, int i) {
         byte firstByte = InputByte.cast(characters[i]).getByte();
         if (firstByte >= MIN_FIRST_BYTE_FOR_ONE_BYTE_CHAR && firstByte <= MAX_FIRST_BYTE_FOR_ONE_BYTE_CHAR) {
             return new String(new byte[] { firstByte } , StandardCharsets.UTF_8);
@@ -868,14 +937,17 @@ class ByteMachine {
             assert pattern instanceof AnythingBut;
             return findAnythingButPattern((AnythingBut) pattern);
         case ANYTHING_BUT_IGNORE_CASE:
-            assert pattern instanceof AnythingButEqualsIgnoreCase;
-            return findAnythingButEqualsIgnoreCasePattern((AnythingButEqualsIgnoreCase) pattern);
+        case ANYTHING_BUT_SUFFIX:
+        case ANYTHING_BUT_PREFIX:
+        case ANYTHING_BUT_WILDCARD:
+            assert pattern instanceof AnythingButValuesSet;
+            return findAnythingButValuesSetPattern((AnythingButValuesSet) pattern);
         case EXACT:
         case NUMERIC_EQ:
         case PREFIX:
+        case PREFIX_EQUALS_IGNORE_CASE:
         case SUFFIX:
-        case ANYTHING_BUT_SUFFIX:
-        case ANYTHING_BUT_PREFIX:
+        case SUFFIX_EQUALS_IGNORE_CASE:
         case EQUALS_IGNORE_CASE:
         case WILDCARD:
             assert pattern instanceof ValuePatterns;
@@ -903,7 +975,7 @@ class ByteMachine {
         return null;
     }
 
-    private NameState findAnythingButEqualsIgnoreCasePattern(AnythingButEqualsIgnoreCase pattern) {
+    private NameState findAnythingButValuesSetPattern(AnythingButValuesSet pattern) {
 
         Set<NameState> nextNameStates = new HashSet<>(pattern.getValues().size());
         for (String value : pattern.getValues()) {
@@ -995,7 +1067,7 @@ class ByteMachine {
         }
 
         // fill in matches in the fork state
-        for (byte bb : Range.digitSequence(range.bottom[forkOffset], range.top[forkOffset], false, false)) {
+        for (byte bb : Range.digitSequence(range.bottom[forkOffset], range.top[forkOffset], false, false, range.isCIDR)) {
             nextNameState = findMatchForRangePattern(bb, forkTrans, range);
             if (nextNameState == null) {
                 return null;
@@ -1008,7 +1080,7 @@ class ByteMachine {
         int lastMatchOffset = forkOffset;
         for (int offsetB = forkOffset + 1; offsetB < (range.bottom.length - 1); offsetB++) {
             byte b = range.bottom[offsetB];
-            if (b < Constants.MAX_DIGIT) {
+            if (b < range.maxDigit()) {
                 while (lastMatchOffset < offsetB) {
                     trans = findNextByteStateForRangePattern(trans, range.bottom[lastMatchOffset++]);
                     if (trans == null) {
@@ -1016,7 +1088,7 @@ class ByteMachine {
                     }
                 }
                 assert lastMatchOffset == offsetB : "lastMatchOffset == offsetB";
-                for (byte bb : Range.digitSequence(b, Constants.MAX_DIGIT, false, true)) {
+                for (byte bb : Range.digitSequence(b, range.maxDigit(), false, true, range.isCIDR)) {
                     nextNameState = findMatchForRangePattern(bb, trans, range);
                     if (nextNameState == null) {
                         return null;
@@ -1029,7 +1101,7 @@ class ByteMachine {
         // now for last "bottom" digit
         final byte lastBottom = range.bottom[range.bottom.length - 1];
         final byte lastTop = range.top[range.top.length - 1];
-        if ((lastBottom < Constants.MAX_DIGIT) || !range.openBottom) {
+        if ((lastBottom < range.maxDigit()) || !range.openBottom) {
             while (lastMatchOffset < range.bottom.length - 1) {
                 trans = findNextByteStateForRangePattern(trans, range.bottom[lastMatchOffset++]);
                 if (trans == null) {
@@ -1048,7 +1120,7 @@ class ByteMachine {
             // unless the last digit is also at the fork position, fill in the extra matches due to
             //  the strictly-less-than condition (see discussion above)
             if (forkOffset < (range.bottom.length - 1)) {
-                for (byte bb : Range.digitSequence(lastBottom, Constants.MAX_DIGIT, false, true)) {
+                for (byte bb : Range.digitSequence(lastBottom, range.maxDigit(), false, true, range.isCIDR)) {
                     nextNameState = findMatchForRangePattern(bb, trans, range);
                     if (nextNameState == null) {
                         return null;
@@ -1063,7 +1135,7 @@ class ByteMachine {
         lastMatchOffset = forkOffset;
         for (int offsetT = forkOffset + 1; offsetT < (range.top.length - 1); offsetT++) {
             byte b = range.top[offsetT];
-            if (b > '0') {
+            if (b > range.minDigit()) {
                 while (lastMatchOffset < offsetT) {
                     trans = findNextByteStateForRangePattern(trans, range.top[lastMatchOffset++]);
                     if (trans == null) {
@@ -1072,7 +1144,7 @@ class ByteMachine {
                 }
                 assert lastMatchOffset == offsetT : "lastMatchOffset == offsetT";
 
-                for (byte bb : Range.digitSequence((byte) '0', range.top[offsetT], true, false)) {
+                for (byte bb : Range.digitSequence(range.minDigit(), range.top[offsetT], true, false, range.isCIDR)) {
                     nextNameState = findMatchForRangePattern(bb, trans, range);
                     if (nextNameState == null) {
                         return null;
@@ -1083,7 +1155,7 @@ class ByteMachine {
         }
 
         // now for last "top" digit
-        if ((lastTop > '0') || !range.openTop) {
+        if ((lastTop > range.minDigit()) || !range.openTop) {
             while (lastMatchOffset < range.top.length - 1) {
                 trans = findNextByteStateForRangePattern(trans, range.top[lastMatchOffset++]);
                 if (trans == null) {
@@ -1101,7 +1173,7 @@ class ByteMachine {
             // unless the last digit is also at the fork position, fill in the extra matches due to
             //  the strictly-less-than condition (see discussion above)
             if (forkOffset < (range.top.length - 1)) {
-                for (byte bb : Range.digitSequence((byte) '0', lastTop, true, false)) {
+                for (byte bb : Range.digitSequence(range.minDigit(), lastTop, true, false, range.isCIDR)) {
                     nextNameState = findMatchForRangePattern(bb, trans, range);
                     if (nextNameState == null) {
                         return null;
@@ -1161,7 +1233,7 @@ class ByteMachine {
         // What could be simpler?
 
         // fill in matches in the fork state
-        for (byte bb : Range.digitSequence(range.bottom[forkOffset], range.top[forkOffset], false, false)) {
+        for (byte bb : Range.digitSequence(range.bottom[forkOffset], range.top[forkOffset], false, false, range.isCIDR)) {
             nextNameState = insertMatchForRangePattern(bb, forkState, nextNameState, range);
         }
 
@@ -1176,7 +1248,7 @@ class ByteMachine {
             // if b is Constants.MAX_DIGIT, then we should hold off adding transitions until we see a non-maxDigit digit
             //  because of the special case described above.
             byte b = range.bottom[offsetB];
-            if (b < Constants.MAX_DIGIT) {
+            if (b < range.maxDigit()) {
                 // add transitions for any 9's we bypassed
                 while (lastMatchOffset < offsetB) {
                     state = findOrMakeNextByteStateForRangePattern(state, range.bottom, lastMatchOffset++);
@@ -1186,7 +1258,7 @@ class ByteMachine {
                 assert state != null : "state != null";
 
                 // now add transitions for values greater than this non-9 digit
-                for (byte bb : Range.digitSequence(b, Constants.MAX_DIGIT, false, true)) {
+                for (byte bb : Range.digitSequence(b, range.maxDigit(), false, true, range.isCIDR)) {
                     nextNameState = insertMatchForRangePattern(bb, state, nextNameState, range);
                 }
             }
@@ -1197,7 +1269,7 @@ class ByteMachine {
         final byte lastTop = range.top[range.top.length - 1];
 
         // similarly, if the last digit is 9 and we have openBottom, there can be no matches so we're done.
-        if ((lastBottom < Constants.MAX_DIGIT) || !range.openBottom) {
+        if ((lastBottom < range.maxDigit()) || !range.openBottom) {
 
             // add transitions for any 9's we bypassed
             while (lastMatchOffset < range.bottom.length - 1) {
@@ -1214,7 +1286,7 @@ class ByteMachine {
             // unless the last digit is also at the fork position, fill in the extra matches due to
             //  the strictly-less-than condition (see discussion above)
             if (forkOffset < (range.bottom.length - 1)) {
-                for (byte bb : Range.digitSequence(lastBottom, Constants.MAX_DIGIT, false, true)) {
+                for (byte bb : Range.digitSequence(lastBottom, range.maxDigit(), false, true, range.isCIDR)) {
                     nextNameState = insertMatchForRangePattern(bb, state, nextNameState, range);
                 }
             }
@@ -1230,7 +1302,7 @@ class ByteMachine {
             byte b = range.top[offsetT];
 
             // if need to add transition
-            if (b > '0') {
+            if (b > range.minDigit()) {
                 while (lastMatchOffset < offsetT) {
                     state = findOrMakeNextByteStateForRangePattern(state, range.top, lastMatchOffset++);
                 }
@@ -1238,7 +1310,7 @@ class ByteMachine {
                 assert state != null : "state != null";
 
                 // now add transitions for values less than this non-0 digit
-                for (byte bb : Range.digitSequence((byte) '0', range.top[offsetT], true, false)) {
+                for (byte bb : Range.digitSequence((byte) range.minDigit(), range.top[offsetT], true, false, range.isCIDR)) {
                     nextNameState = insertMatchForRangePattern(bb, state, nextNameState, range);
                 }
             }
@@ -1247,7 +1319,7 @@ class ByteMachine {
         // now for last "top" digit
 
         // similarly, if the last digit is 0 and we have openTop, there can be no matches so we're done.
-        if ((lastTop > '0') || !range.openTop) {
+        if ((lastTop > range.minDigit()) || !range.openTop) {
 
             // add transitions for any 0's we bypassed
             while (lastMatchOffset < range.top.length - 1) {
@@ -1264,7 +1336,7 @@ class ByteMachine {
             // unless the last digit is also at the fork position, fill in the extra matches due to
             //  the strictly-less-than condition (see discussion above)
             if (forkOffset < (range.top.length - 1)) {
-                for (byte bb : Range.digitSequence((byte) '0', lastTop, true, false)) {
+                for (byte bb : Range.digitSequence((byte) range.minDigit(), lastTop, true, false, range.isCIDR)) {
                     nextNameState = insertMatchForRangePattern(bb, state, nextNameState, range);
                 }
             }
@@ -1583,11 +1655,13 @@ class ByteMachine {
         switch (pattern.type()) {
         case EXACT:
         case PREFIX:
+        case PREFIX_EQUALS_IGNORE_CASE:
         case EXISTS:
         case EQUALS_IGNORE_CASE:
         case WILDCARD:
             break;
         case SUFFIX:
+        case SUFFIX_EQUALS_IGNORE_CASE:
             hasSuffix.incrementAndGet();
             break;
         case NUMERIC_EQ:
@@ -1607,14 +1681,13 @@ class ByteMachine {
                 hasNumeric.incrementAndGet();
             }
             break;
+        case ANYTHING_BUT_PREFIX:
         case ANYTHING_BUT_IGNORE_CASE:
+        case ANYTHING_BUT_WILDCARD:
             addToAnythingButsMap(anythingButs, match.getNextNameState(), match.getPattern());
             break;
         case ANYTHING_BUT_SUFFIX:
             hasSuffix.incrementAndGet();
-            addToAnythingButsMap(anythingButs, match.getNextNameState(), match.getPattern());
-            break;
-        case ANYTHING_BUT_PREFIX:
             addToAnythingButsMap(anythingButs, match.getNextNameState(), match.getPattern());
             break;
         default:
@@ -1685,11 +1758,13 @@ class ByteMachine {
         switch (pattern.type()) {
         case EXACT:
         case PREFIX:
+        case PREFIX_EQUALS_IGNORE_CASE:
         case EXISTS:
         case EQUALS_IGNORE_CASE:
         case WILDCARD:
             break;
         case SUFFIX:
+        case SUFFIX_EQUALS_IGNORE_CASE:
             hasSuffix.decrementAndGet();
             break;
         case NUMERIC_EQ:
@@ -1709,14 +1784,13 @@ class ByteMachine {
                 hasNumeric.decrementAndGet();
             }
             break;
+        case ANYTHING_BUT_PREFIX:
         case ANYTHING_BUT_IGNORE_CASE:
+        case ANYTHING_BUT_WILDCARD:
             removeFromAnythingButsMap(anythingButs, match.getNextNameState(), match.getPattern());
             break;
         case ANYTHING_BUT_SUFFIX:
             hasSuffix.decrementAndGet();
-            removeFromAnythingButsMap(anythingButs, match.getNextNameState(), match.getPattern());
-            break;
-        case ANYTHING_BUT_PREFIX:
             removeFromAnythingButsMap(anythingButs, match.getNextNameState(), match.getPattern());
             break;
         default:
@@ -1770,7 +1844,7 @@ class ByteMachine {
         return coalesce(candidates);
     }
 
-    private static void addTransitionNextState(ByteState state, InputCharacter character, InputCharacter[] characters,
+    private void addTransitionNextState(ByteState state, InputCharacter character, InputCharacter[] characters,
                                                int currentIndex, ByteState prevState, Patterns pattern,
                                                ByteState nextState, NameState nameState) {
         if (isWildcard(character)) {
@@ -1951,12 +2025,12 @@ class ByteMachine {
         return (startStateMatch != null ? 1 : 0) + evaluator.evaluate(startState);
     }
 
-    public void gatherObjects(Set<Object> objectSet) {
-        if (!objectSet.contains(this)) { // stops looping
+    public void gatherObjects(Set<Object> objectSet, int maxObjectCount) {
+        if (!objectSet.contains(this) && objectSet.size() < maxObjectCount) { // stops looping
             objectSet.add(this);
-            startState.gatherObjects(objectSet);
+            startState.gatherObjects(objectSet, maxObjectCount);
             for (NameState states : anythingButs.keySet()) {
-                states.gatherObjects(objectSet);
+                states.gatherObjects(objectSet, maxObjectCount);
             }
         }
     }
@@ -2006,8 +2080,10 @@ class ByteMachine {
         }
 
         @Override
-        public void gatherObjects(Set<Object> objectSet) {
-            objectSet.add(this);
+        public void gatherObjects(Set<Object> objectSet, int maxObjectCount) {
+            if(objectSet.size() < maxObjectCount) {
+                objectSet.add(this);
+            }
         }
     }
 
@@ -2020,5 +2096,11 @@ class ByteMachine {
                 ", hasSuffix=" + hasSuffix +
                 ", anythingButs=" + anythingButs +
                 '}';
+    }
+
+    enum TransitionValueType {
+        NUMERIC,
+        CIDR,
+        STRING
     }
 }

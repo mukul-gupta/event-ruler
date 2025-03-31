@@ -6,10 +6,13 @@ import java.io.ByteArrayInputStream;
 import java.io.StringReader;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -29,12 +32,11 @@ import static org.junit.Assert.fail;
 public class ACMachineTest {
 
     private String toIP(int ip) {
-        StringBuilder sb = new StringBuilder();
-        sb.append((ip >> 24) & 0xFF).append('.');
-        sb.append((ip >> 16) & 0xFF).append('.');
-        sb.append((ip >> 8) & 0xFF).append('.');
-        sb.append(ip & 0xFF);
-        return sb.toString();
+        String sb = String.valueOf((ip >> 24) & 0xFF) + '.' +
+                ((ip >> 16) & 0xFF) + '.' +
+                ((ip >> 8) & 0xFF) + '.' +
+                (ip & 0xFF);
+        return sb;
     }
 
     @Test
@@ -348,6 +350,94 @@ public class ACMachineTest {
         String e2 = "{ \"a\": \"albert\"}";
         List<String> rules = machine.rulesForJSONEvent(e2);
         assertEquals(2, rules.size());
+    }
+
+    @Test
+    public void testPrefixEqualsIgnoreCase() throws Exception {
+        String rule1 = "{ \"a\" : [ { \"prefix\": { \"equals-ignore-case\" : \"zoo\" } } ] }";
+        String rule2 = "{ \"b\" : [ { \"prefix\": { \"equals-ignore-case\" : \"child\" } } ] }";
+        Machine machine = new Machine();
+        machine.addRule("r1", rule1);
+        machine.addRule("r2", rule2);
+        String[] events = {
+                "{\"a\": \"zOokeeper\"}",
+                "{\"a\": \"Zoo\"}",
+                "{\"b\": \"cHildlike\"}",
+                "{\"b\": \"chIldish\"}",
+                "{\"b\": \"childhood\"}"
+        };
+        for (String event : events) {
+            List<String> rules = machine.rulesForJSONEvent(event);
+            assertEquals(1, rules.size());
+            if (event.contains("\"a\"")) {
+                assertEquals("r1", rules.get(0));
+            } else {
+                assertEquals("r2", rules.get(0));
+            }
+        }
+
+        machine = new Machine();
+        String rule3 = "{ \"a\" : [ { \"prefix\": { \"equals-ignore-case\" : \"al\" } } ] }";
+        String rule4 = "{ \"a\" : [ \"ALbert\" ] }";
+        machine.addRule("r3", rule3);
+        machine.addRule("r4", rule4);
+        String e2 = "{ \"a\": \"ALbert\"}";
+        List<String> rules = machine.rulesForJSONEvent(e2);
+        assertEquals(2, rules.size());
+    }
+
+    @Test
+    public void testSuffixEqualsIgnoreCase() throws Exception {
+        String rule1 = "{ \"a\" : [ { \"suffix\": { \"equals-ignore-case\" : \"eper\" } } ] }";
+        String rule2 = "{ \"b\" : [ { \"suffix\": { \"equals-ignore-case\" : \"hood\" } } ] }";
+        Machine machine = new Machine();
+        machine.addRule("r1", rule1);
+        machine.addRule("r2", rule2);
+        String[] events = {
+                "{\"a\": \"zookeePer\"}",
+                "{\"a\": \"Gatekeeper\"}",
+                "{\"b\": \"hOod\"}",
+                "{\"b\": \"parenthOod\"}",
+                "{\"b\": \"brotherhood\"}",
+                "{\"b\": \"childhOoD\"}"
+        };
+        for (String event : events) {
+            List<String> rules = machine.rulesForJSONEvent(event);
+            assertEquals(1, rules.size());
+            if (event.contains("\"a\"")) {
+                assertEquals("r1", rules.get(0));
+            } else {
+                assertEquals("r2", rules.get(0));
+            }
+        }
+
+        machine = new Machine();
+        String rule3 = "{ \"a\" : [ { \"suffix\": { \"equals-ignore-case\" : \"ert\" } } ] }";
+        String rule4 = "{ \"a\" : [ \"AlbeRT\" ] }";
+        machine.addRule("r3", rule3);
+        machine.addRule("r4", rule4);
+        String e2 = "{ \"a\": \"AlbeRT\"}";
+        List<String> rules = machine.rulesForJSONEvent(e2);
+        assertEquals(2, rules.size());
+    }
+
+    @Test
+    public void testSuffixEqualsIgnoreCaseChineseMatch() throws Exception {
+        Machine m = new Machine();
+        String rule = "{\n" +
+                "   \"status\": {\n" +
+                "       \"weatherText\": [{\"suffix\": \"统治者\"}]\n" +
+                "    }\n" +
+                "}";
+        String eventStr ="{\n" +
+                "  \"status\": {\n" +
+                "    \"weatherText\": \"事件统治者\",\n" +
+                "    \"pm25\": 23\n" +
+                "  }\n" +
+                "}";
+        m.addRule("r1", rule);
+        List<String> matchRules = m.rulesForJSONEvent(eventStr);
+        assertEquals(1, matchRules.size());
     }
 
     @Test
@@ -1117,7 +1207,7 @@ public class ACMachineTest {
 
         // add the rule, ensure it matches
         cut.addRule("r1", rule);
-        String event = "{\"x\": 111111111.111111111}";
+        String event = "{\"x\": 111111111.111111}";
         String event1 = "{\"x\": 1000000000}";
         assertEquals(1, cut.rulesForJSONEvent(event).size());
         assertEquals(0, cut.rulesForJSONEvent(event1).size());
@@ -1346,8 +1436,76 @@ public class ACMachineTest {
     }
 
     @Test
-    public void testAnythingButSuffix() throws Exception {
+    public void testAnythingButPrefix() throws Exception {
+        String rule = "{\n" +
+                "\"a\": [ { \"anything-but\": {\"prefix\": \"$\"} } ]\n" +
+                "}";
 
+        Machine machine = new Machine();
+        machine.addRule("r1", rule);
+
+        String event1 = "{" +
+                "    \"a\": \"value$\"\n" +
+                "}\n";
+
+        String event2 = "{" +
+                "    \"a\": \"notvalue\"\n" +
+                "}\n";
+
+        String event3 = "{" +
+                "    \"a\": \"$notvalue\"\n" +
+                "}\n";
+
+        assertEquals(1, machine.rulesForJSONEvent(event1).size());
+        assertEquals(1, machine.rulesForJSONEvent(event2).size());
+        assertEquals(0, machine.rulesForJSONEvent(event3).size());
+
+        machine.deleteRule("r1", rule);
+
+        assertTrue(machine.isEmpty());
+        assertEquals(0, machine.rulesForJSONEvent(event2).size());
+        assertEquals(0, machine.rulesForJSONEvent(event3).size());
+    }
+
+    @Test
+    public void testAnythingButPrefixSet() throws Exception {
+        String rule = "{\n" +
+                "\"a\": [ { \"anything-but\": {\"prefix\": [\"$\", \"%\"] } } ]\n" +
+                "}";
+
+        Machine machine = new Machine();
+        machine.addRule("r1", rule);
+
+        String event1 = "{" +
+                "    \"a\": \"value$\"\n" +
+                "}\n";
+
+        String event2 = "{" +
+                "    \"a\": \"notvalue%\"\n" +
+                "}\n";
+
+        String event3 = "{" +
+                "    \"a\": \"$notvalue\"\n" +
+                "}\n";
+
+        String event4 = "{" +
+                "    \"a\": \"%notvalue\"\n" +
+                "}\n";
+
+        assertEquals(1, machine.rulesForJSONEvent(event1).size());
+        assertEquals(1, machine.rulesForJSONEvent(event2).size());
+        assertEquals(0, machine.rulesForJSONEvent(event3).size());
+        assertEquals(0, machine.rulesForJSONEvent(event4).size());
+
+        machine.deleteRule("r1", rule);
+
+        assertTrue(machine.isEmpty());
+        assertEquals(0, machine.rulesForJSONEvent(event3).size());
+        assertEquals(0, machine.rulesForJSONEvent(event4).size());
+    }
+
+    @Test
+    public void testAnythingButSuffix() throws Exception {
         String rule = "{\n" +
                 "\"a\": [ { \"anything-but\": {\"suffix\": \"$\"} } ]\n" +
                 "}";
@@ -1371,6 +1529,48 @@ public class ACMachineTest {
         assertEquals(1, machine.rulesForJSONEvent(event2).size());
         assertEquals(1, machine.rulesForJSONEvent(event3).size());
 
+        machine.deleteRule("r1", rule);
+
+        assertTrue(machine.isEmpty());
+        assertEquals(0, machine.rulesForJSONEvent(event2).size());
+        assertEquals(0, machine.rulesForJSONEvent(event3).size());
+    }
+
+    @Test
+    public void testAnythingButSuffixSet() throws Exception {
+        String rule = "{\n" +
+                "\"a\": [ { \"anything-but\": {\"suffix\": [\"$\", \"%\"] } } ]\n" +
+                "}";
+
+        Machine machine = new Machine();
+        machine.addRule("r1", rule);
+
+        String event1 = "{" +
+                "    \"a\": \"value$\"\n" +
+                "}\n";
+
+        String event2 = "{" +
+                "    \"a\": \"notvalue%\"\n" +
+                "}\n";
+
+        String event3 = "{" +
+                "    \"a\": \"$notvalue\"\n" +
+                "}\n";
+
+        String event4 = "{" +
+                "    \"a\": \"%notvalue\"\n" +
+                "}\n";
+
+        assertEquals(0, machine.rulesForJSONEvent(event1).size());
+        assertEquals(0, machine.rulesForJSONEvent(event2).size());
+        assertEquals(1, machine.rulesForJSONEvent(event3).size());
+        assertEquals(1, machine.rulesForJSONEvent(event4).size());
+
+        machine.deleteRule("r1", rule);
+
+        assertTrue(machine.isEmpty());
+        assertEquals(0, machine.rulesForJSONEvent(event3).size());
+        assertEquals(0, machine.rulesForJSONEvent(event4).size());
     }
 
     @Test
@@ -1439,6 +1639,200 @@ public class ACMachineTest {
         assertEquals(0, machine.rulesForJSONEvent(event8).size());
         assertEquals(0, machine.rulesForJSONEvent(event9).size());
 
+        machine.deleteRule("r1", rule);
+
+        assertTrue(machine.isEmpty());
+        assertEquals(0, machine.rulesForJSONEvent(event1).size());
+    }
+
+    @Test
+    public void testAnythingButWildcard() throws Exception {
+        String rule = "{\n" +
+                "\"a\": [ { \"anything-but\": {\"wildcard\": \"*foo*\"} } ]\n" +
+        "}";
+
+        Machine machine = new Machine();
+        machine.addRule("r1", rule);
+
+        String event1 = "{" +
+                "    \"a\": \"foo\"\n" +
+        "}\n";
+
+        String event2 = "{" +
+                "    \"a\": \"foobar\"\n" +
+        "}\n";
+
+        String event3 = "{" +
+                "    \"a\": \"barfoo\"\n" +
+        "}\n";
+
+        String event4 = "{" +
+                "    \"a\": \"barfoobar\"\n" +
+        "}\n";
+
+        String event5 = "{" +
+                "    \"a\": \"barfobarobar\"\n" +
+        "}\n";
+
+        assertEquals(0, machine.rulesForJSONEvent(event1).size());
+        assertEquals(0, machine.rulesForJSONEvent(event2).size());
+        assertEquals(0, machine.rulesForJSONEvent(event3).size());
+        assertEquals(0, machine.rulesForJSONEvent(event4).size());
+        assertEquals(1, machine.rulesForJSONEvent(event5).size());
+
+        machine.deleteRule("r1", rule);
+
+        assertTrue(machine.isEmpty());
+        assertEquals(0, machine.rulesForJSONEvent(event5).size());
+    }
+
+    @Test
+    public void testAnythingButWildcardSet() throws Exception {
+        String rule = "{\n" +
+                "\"a\": [ { \"anything-but\": {\"wildcard\": [\"*foo*\", \"*bar*\"] } } ]\n" +
+        "}";
+
+        Machine machine = new Machine();
+        machine.addRule("r1", rule);
+
+        String event1 = "{" +
+                "    \"a\": \"foo\"\n" +
+        "}\n";
+
+        String event2 = "{" +
+                "    \"a\": \"foos\"\n" +
+        "}\n";
+
+        String event3 = "{" +
+                "    \"a\": \"sfoo\"\n" +
+        "}\n";
+
+        String event4 = "{" +
+                "    \"a\": \"sfoos\"\n" +
+        "}\n";
+
+        String event5 = "{" +
+                "    \"a\": \"bar\"\n" +
+        "}\n";
+
+        String event6 = "{" +
+                "    \"a\": \"bars\"\n" +
+        "}\n";
+
+        String event7 = "{" +
+                "    \"a\": \"sbar\"\n" +
+        "}\n";
+
+        String event8 = "{" +
+                "    \"a\": \"sbars\"\n" +
+        "}\n";
+
+        String event9 = "{" +
+                "    \"a\": \"fobaor\"\n" +
+        "}\n";
+
+        assertEquals(0, machine.rulesForJSONEvent(event1).size());
+        assertEquals(0, machine.rulesForJSONEvent(event2).size());
+        assertEquals(0, machine.rulesForJSONEvent(event3).size());
+        assertEquals(0, machine.rulesForJSONEvent(event4).size());
+        assertEquals(0, machine.rulesForJSONEvent(event5).size());
+        assertEquals(0, machine.rulesForJSONEvent(event6).size());
+        assertEquals(0, machine.rulesForJSONEvent(event7).size());
+        assertEquals(0, machine.rulesForJSONEvent(event8).size());
+        assertEquals(1, machine.rulesForJSONEvent(event9).size());
+
+        machine.deleteRule("r1", rule);
+
+        assertTrue(machine.isEmpty());
+        assertEquals(0, machine.rulesForJSONEvent(event9).size());
+    }
+
+    @Test
+    public void testAnythingButWildcardMultipleRules() throws Exception {
+        String rule1 = "{\n" +
+                "\"a\": [ { \"anything-but\": {\"wildcard\": \"*foo*\"} } ]\n" +
+        "}";
+
+        String rule2 = "{\n" +
+                "\"a\": [ { \"anything-but\": {\"wildcard\": \"*bar*\"} } ]\n" +
+        "}";
+
+        Machine machine = new Machine();
+        machine.addRule("r1", rule1);
+        machine.addRule("r2", rule2);
+
+        String event1 = "{" +
+                "    \"a\": \"foo\"\n" +
+        "}\n";
+
+        String event2 = "{" +
+                "    \"a\": \"foos\"\n" +
+        "}\n";
+
+        String event3 = "{" +
+                "    \"a\": \"sfoo\"\n" +
+        "}\n";
+
+        String event4 = "{" +
+                "    \"a\": \"sfoos\"\n" +
+        "}\n";
+
+        String event5 = "{" +
+                "    \"a\": \"bar\"\n" +
+        "}\n";
+
+        String event6 = "{" +
+                "    \"a\": \"bars\"\n" +
+        "}\n";
+
+        String event7 = "{" +
+                "    \"a\": \"sbar\"\n" +
+        "}\n";
+
+        String event8 = "{" +
+                "    \"a\": \"sbars\"\n" +
+        "}\n";
+
+        String event9 = "{" +
+                "    \"a\": \"sfoobars\"\n" +
+        "}\n";
+
+        String event10 = "{" +
+                "    \"a\": \"fobaor\"\n" +
+        "}\n";
+
+        assertEquals(set("r2"), set(machine.rulesForJSONEvent(event1)));
+        assertEquals(set("r2"), set(machine.rulesForJSONEvent(event2)));
+        assertEquals(set("r2"), set(machine.rulesForJSONEvent(event3)));
+        assertEquals(set("r2"), set(machine.rulesForJSONEvent(event4)));
+        assertEquals(set("r1"), set(machine.rulesForJSONEvent(event5)));
+        assertEquals(set("r1"), set(machine.rulesForJSONEvent(event6)));
+        assertEquals(set("r1"), set(machine.rulesForJSONEvent(event7)));
+        assertEquals(set("r1"), set(machine.rulesForJSONEvent(event8)));
+        assertEquals(0, machine.rulesForJSONEvent(event9).size());
+        assertEquals(set("r1", "r2"), set(machine.rulesForJSONEvent(event10)));
+
+        machine.deleteRule("r1", rule1);
+
+        assertFalse(machine.isEmpty());
+        assertEquals(set("r2"), set(machine.rulesForJSONEvent(event1)));
+        assertEquals(set("r2"), set(machine.rulesForJSONEvent(event2)));
+        assertEquals(set("r2"), set(machine.rulesForJSONEvent(event3)));
+        assertEquals(set("r2"), set(machine.rulesForJSONEvent(event4)));
+        assertEquals(0, machine.rulesForJSONEvent(event5).size());
+        assertEquals(0, machine.rulesForJSONEvent(event6).size());
+        assertEquals(0, machine.rulesForJSONEvent(event7).size());
+        assertEquals(0, machine.rulesForJSONEvent(event8).size());
+        assertEquals(set("r2"), set(machine.rulesForJSONEvent(event10)));
+
+        machine.deleteRule("r2", rule2);
+
+        assertTrue(machine.isEmpty());
+        assertEquals(0, machine.rulesForJSONEvent(event1).size());
+        assertEquals(0, machine.rulesForJSONEvent(event2).size());
+        assertEquals(0, machine.rulesForJSONEvent(event3).size());
+        assertEquals(0, machine.rulesForJSONEvent(event4).size());
+        assertEquals(0, machine.rulesForJSONEvent(event10).size());
     }
 
     @Test
@@ -1678,6 +2072,70 @@ public class ACMachineTest {
 
         String rule2 = "{\n" +
                 "  \"x\": [ { \"equals-ignore-case\": \"Y\" } ]\n" +
+                "}";
+
+        machine.addRule("rule1", rule1);
+        machine.addRule("rule2", rule2);
+
+        List<String> found = machine.rulesForJSONEvent(event);
+        assertEquals(2, found.size());
+        assertTrue(found.contains("rule1"));
+        assertTrue(found.contains("rule2"));
+
+        machine.deleteRule("rule1", rule1);
+        found = machine.rulesForJSONEvent(event);
+        assertEquals(1, found.size());
+        machine.deleteRule("rule2", rule2);
+        found = machine.rulesForJSONEvent(event);
+        assertEquals(0, found.size());
+        assertTrue(machine.isEmpty());
+    }
+
+    @Test
+    public void testAddAndDeleteTwoRulesSameCaseInsensitivePatternPrefixEqualsIgnoreCase() throws Exception {
+        final Machine machine = new Machine();
+        String event = "{\n" +
+                "  \"x\": \"yay\"\n" +
+                "}";
+
+        String rule1 = "{\n" +
+                "  \"x\": [ { \"prefix\": { \"equals-ignore-case\": \"y\" } } ]\n" +
+                "}";
+
+        String rule2 = "{\n" +
+                "  \"x\": [ { \"prefix\": { \"equals-ignore-case\": \"Y\" } } ]\n" +
+                "}";
+
+        machine.addRule("rule1", rule1);
+        machine.addRule("rule2", rule2);
+
+        List<String> found = machine.rulesForJSONEvent(event);
+        assertEquals(2, found.size());
+        assertTrue(found.contains("rule1"));
+        assertTrue(found.contains("rule2"));
+
+        machine.deleteRule("rule1", rule1);
+        found = machine.rulesForJSONEvent(event);
+        assertEquals(1, found.size());
+        machine.deleteRule("rule2", rule2);
+        found = machine.rulesForJSONEvent(event);
+        assertEquals(0, found.size());
+        assertTrue(machine.isEmpty());
+    }
+
+    @Test
+    public void testAddAndDeleteTwoRulesSameCaseInsensitivePatternSuffixEqualsIgnoreCase() throws Exception {
+        final Machine machine = new Machine();
+        String event = "{\n" +
+                "  \"x\": \"yay\"\n" +
+                "}";
+
+        String rule1 = "{\n" +
+                "  \"x\": [ { \"suffix\": { \"equals-ignore-case\": \"y\" } } ]\n" +
+                "}";
+
+        String rule2 = "{\n" +
+                "  \"x\": [ { \"suffix\": { \"equals-ignore-case\": \"Y\" } } ]\n" +
                 "}";
 
         machine.addRule("rule1", rule1);
@@ -2155,5 +2613,159 @@ public class ACMachineTest {
         List<String> matches = machine.rulesForJSONEvent(event);
         assertEquals(1, matches.size());
         assertTrue(matches.contains("rule2"));
+    }
+
+    @Test
+    public void testCIDRRuleWithMatchingAnythingButRule() throws Exception {
+        String rule1 = "{\"ip\": [{\"anything-but\": \"10.0.1.200\"}]}";
+        String rule2 = "{\"ip\": [\"10.0.1.200\"]}";
+
+        Machine machine = new Machine();
+        machine.addRule("rule1", rule1);
+        machine.addRule("rule2", rule2);
+
+        String event = "{" +
+                "\"ip\": \"10.0.1.200\"" +
+        "}";
+
+        List<String> matches = machine.rulesForJSONEvent(event);
+        assertEquals(1, matches.size());
+        assertTrue(matches.contains("rule2"));
+    }
+
+    @Test
+    public void testCIDRRuleWithMatchingAnythingButPrefixRule() throws Exception {
+        String rule1 = "{\"ip\": [{\"anything-but\": {\"prefix\": \"10.0.\"}}]}";
+        String rule2 = "{\"ip\": [\"10.0.1.200\"]}";
+
+        Machine machine = new Machine();
+        machine.addRule("rule1", rule1);
+        machine.addRule("rule2", rule2);
+
+        String event = "{" +
+                "\"ip\": \"10.0.1.200\"" +
+        "}";
+
+        List<String> matches = machine.rulesForJSONEvent(event);
+        assertEquals(1, matches.size());
+        assertTrue(matches.contains("rule2"));
+    }
+
+    @Test
+    public void testCIDRRuleWithMatchingAnythingButSuffixRule() throws Exception {
+        String rule1 = "{\"ip\": [{\"anything-but\": {\"suffix\": \"1.200\"}}]}";
+        String rule2 = "{\"ip\": [\"10.0.1.200\"]}";
+
+        Machine machine = new Machine();
+        machine.addRule("rule1", rule1);
+        machine.addRule("rule2", rule2);
+
+        String event = "{" +
+                "\"ip\": \"10.0.1.200\"" +
+        "}";
+
+        List<String> matches = machine.rulesForJSONEvent(event);
+        assertEquals(1, matches.size());
+        assertTrue(matches.contains("rule2"));
+    }
+
+    @Test
+    public void testCIDRRuleWithMatchingAnythingButEqualsIgnoreCaseRule() throws Exception {
+        String rule1 = "{\"ip\": [{\"anything-but\": {\"equals-ignore-case\": \"10.0.1.200\"}}]}";
+        String rule2 = "{\"ip\": [\"10.0.1.200\"]}";
+
+        Machine machine = new Machine();
+        machine.addRule("rule1", rule1);
+        machine.addRule("rule2", rule2);
+
+        String event = "{" +
+                "\"ip\": \"10.0.1.200\"" +
+        "}";
+
+        List<String> matches = machine.rulesForJSONEvent(event);
+        assertEquals(1, matches.size());
+        assertTrue(matches.contains("rule2"));
+    }
+
+    @Test
+    public void testCIDRRuleWithNumericRule() throws Exception {
+        String rule1 = "{\"ip\": [{\"numeric\": [\">\", 0, \"<=\", 5]}]}";
+        String rule2 = "{\"ip\": [\"10.0.1.200\"]}";
+
+        Machine machine = new Machine();
+        machine.addRule("rule1", rule1);
+        machine.addRule("rule2", rule2);
+
+        String event = "{" +
+                "\"ip\": \"10.0.1.200\"" +
+        "}";
+
+        List<String> matches = machine.rulesForJSONEvent(event);
+        assertEquals(1, matches.size());
+        assertTrue(matches.contains("rule2"));
+    }
+
+    @Test
+    public void testAdditionalNameSateReuseAllKeysAndPatternsEncounteredInPreviousSubRules() throws Exception {
+        String rule1 = "{\"$or\":[\n" +
+                "         {\"foo\": [\"a\"],\n" +
+                "          \"bar\": [\"1\"]\n" +
+                "         },\n" +
+                "         {\"foo\": [\"b\"],\n" +
+                "          \"bar\": [\"2\"]\n" +
+                "         },\n" +
+                "         {\"foo\": [\"b\"],\n" +
+                "          \"bar\": [\"1\"]\n" +
+                "         }\n" +
+                "       ]}";
+
+        Machine machine = Machine.builder().withAdditionalNameStateReuse(true).build();
+        machine.addRule("rule1", rule1);
+
+        String event = "{" +
+                "  \"foo\": [\"b\"]," +
+                "  \"bar\": [\"1\"]" +
+                "}";
+
+        List<String> matches = machine.rulesForJSONEvent(event);
+        assertEquals(1, matches.size());
+        assertTrue(matches.contains("rule1"));
+    }
+
+    @Test
+    public void testAdditionalNameStateReuseSecondSubRuleSubsetOfFirstSubRule() throws Exception {
+        String rule1 = "{\"$or\":[\n" +
+                "         {\"bar\": [\"1\"],\n" +
+                "          \"foo\": [\"a\"],\n" +
+                "          \"zoo\": [\"x\"]\n" +
+                "         },\n" +
+                "         {\"bar\": [\"1\"],\n" +
+                "          \"zoo\": [\"x\"]\n" +
+                "         }\n" +
+                "       ]}";
+
+        Machine machine = Machine.builder().withAdditionalNameStateReuse(true).build();
+        machine.addRule("rule1", rule1);
+
+        String event = "{" +
+                "  \"bar\": [\"1\"]," +
+                "  \"zoo\": [\"x\"]" +
+                "}";
+
+        List<String> matches = machine.rulesForJSONEvent(event);
+        assertEquals(1, matches.size());
+        assertTrue(matches.contains("rule1"));
+    }
+
+    private static Set<String> set(String ... strings) {
+        return set(Arrays.asList(strings));
+    }
+
+    private static Set<String> set(List<String> strings) {
+        Set<String> set = new HashSet<>();
+        for (String s : strings) {
+            set.add(s);
+        }
+        return set;
     }
 }

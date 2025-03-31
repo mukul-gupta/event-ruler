@@ -4,6 +4,9 @@ import com.fasterxml.jackson.core.JsonFactory;
 import com.fasterxml.jackson.core.JsonParseException;
 import com.fasterxml.jackson.core.JsonParser;
 import com.fasterxml.jackson.core.JsonToken;
+import com.fasterxml.jackson.core.StreamReadFeature;
+import software.amazon.event.ruler.input.ParseException;
+
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.Reader;
@@ -14,6 +17,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
+
+import static software.amazon.event.ruler.input.DefaultParser.getParser;
 
 /**
  * Represents a updated compiler comparing to RuleCompiler class, it parses a rule described by a JSON string into
@@ -46,7 +51,9 @@ import java.util.stream.Collectors;
  */
 public class JsonRuleCompiler {
 
-    private static final JsonFactory JSON_FACTORY = new JsonFactory();
+    private static final JsonFactory JSON_FACTORY = JsonFactory.builder()
+            .configure(StreamReadFeature.INCLUDE_SOURCE_IN_LOCATION, true)
+            .build();
 
     private JsonRuleCompiler() { }
 
@@ -311,7 +318,7 @@ public class JsonRuleCompiler {
                  *  so make that condition survivable.
                  */
                 try {
-                    values.add(Patterns.numericEquals(parser.getDoubleValue()));
+                    values.add(Patterns.numericEquals(parser.getText()));
                 } catch (Exception e) {
                     // no-op
                 }
@@ -362,6 +369,10 @@ public class JsonRuleCompiler {
             return pattern;
         } else if (Constants.PREFIX_MATCH.equals(matchTypeName)) {
             final JsonToken prefixToken = parser.nextToken();
+            if (prefixToken == JsonToken.START_OBJECT) {
+                return processPrefixEqualsIgnoreCaseExpression(parser);
+            }
+
             if (prefixToken != JsonToken.VALUE_STRING) {
                 barf(parser, "prefix match pattern must be a string");
             }
@@ -372,6 +383,10 @@ public class JsonRuleCompiler {
             return pattern;
         } else if (Constants.SUFFIX_MATCH.equals(matchTypeName)) {
             final JsonToken suffixToken = parser.nextToken();
+            if (suffixToken == JsonToken.START_OBJECT) {
+                return processSuffixEqualsIgnoreCaseExpression(parser);
+            }
+
             if (suffixToken != JsonToken.VALUE_STRING) {
                 barf(parser, "suffix match pattern must be a string");
             }
@@ -392,7 +407,7 @@ public class JsonRuleCompiler {
             return range;
         } else if (Constants.ANYTHING_BUT_MATCH.equals(matchTypeName)) {
 
-            boolean isIgnoreCase = false;
+            MatchType matchType = MatchType.ANYTHING_BUT;
             JsonToken anythingButExpressionToken = parser.nextToken();
             if (anythingButExpressionToken == JsonToken.START_OBJECT) {
 
@@ -402,36 +417,25 @@ public class JsonRuleCompiler {
                     barf(parser, "Anything-But expression name not found");
                 }
                 final String anythingButObjectOp = parser.getCurrentName();
-                final boolean isPrefix = Constants.PREFIX_MATCH.equals(anythingButObjectOp);
-                final boolean isSuffix = Constants.SUFFIX_MATCH.equals(anythingButObjectOp);
-                isIgnoreCase = Constants.EQUALS_IGNORE_CASE.equals(anythingButObjectOp);
-                if(!isIgnoreCase) {
-                    if (!isPrefix && !isSuffix) {
+                switch (anythingButObjectOp) {
+                    case Constants.EQUALS_IGNORE_CASE:
+                        matchType = MatchType.ANYTHING_BUT_IGNORE_CASE;
+                        break;
+                    case Constants.PREFIX_MATCH:
+                        matchType = MatchType.ANYTHING_BUT_PREFIX;
+                        break;
+                    case Constants.SUFFIX_MATCH:
+                        matchType = MatchType.ANYTHING_BUT_SUFFIX;
+                        break;
+                    case Constants.WILDCARD:
+                        matchType = MatchType.ANYTHING_BUT_WILDCARD;
+                        break;
+                    default:
                         barf(parser, "Unsupported anything-but pattern: " + anythingButObjectOp);
-                    }
-                    final JsonToken anythingButParamType = parser.nextToken();
-                    if (anythingButParamType != JsonToken.VALUE_STRING) {
-                        barf(parser, "prefix/suffix match pattern must be a string");
-                    }
-                    final String text = parser.getText();
-                    if (text.isEmpty()) {
-                        barf(parser, "Null prefix/suffix not allowed");
-                    }
-                    if (parser.nextToken() != JsonToken.END_OBJECT) {
-                        barf(parser, "Only one key allowed in match expression");
-                    }
-                    if (parser.nextToken() != JsonToken.END_OBJECT) {
-                        barf(parser, "Only one key allowed in match expression");
-                    }
-                    if(isPrefix) {
-                        return  Patterns.anythingButPrefix('"' + text); // note no trailing quote
-                    } else {
-                        return  Patterns.anythingButSuffix(text + '"'); // note no leading quote
-                    }
-                } else {
-                    // Step into anything-but's equals-ignore-case
-                    anythingButExpressionToken = parser.nextToken();
                 }
+
+                // Step into anything-but's equals-ignore-case/prefix/suffix/wildcard
+                anythingButExpressionToken = parser.nextToken();
             }
 
             if (anythingButExpressionToken != JsonToken.START_ARRAY &&
@@ -444,24 +448,24 @@ public class JsonRuleCompiler {
 
             Patterns anythingBut;
             if (anythingButExpressionToken == JsonToken.START_ARRAY) {
-               if(isIgnoreCase) {
-                  anythingBut = processAnythingButEqualsIgnoreCaseListMatchExpression(parser);
-               } else {
-                  anythingBut = processAnythingButListMatchExpression(parser);
-               }
+                if (matchType == MatchType.ANYTHING_BUT) {
+                    anythingBut = processAnythingButListMatchExpression(parser);
+                } else {
+                    anythingBut = processAnythingButValuesSetMatchExpression(parser, matchType);
+                }
             } else {
-               if(isIgnoreCase) {
-                  anythingBut = processAnythingButEqualsIgnoreCaseMatchExpression(parser, anythingButExpressionToken);
-               } else {
-                  anythingBut = processAnythingButMatchExpression(parser, anythingButExpressionToken);
-               }
+                if (matchType == MatchType.ANYTHING_BUT) {
+                    anythingBut = processAnythingButMatchExpression(parser, anythingButExpressionToken);
+                } else {
+                    anythingBut = processAnythingButValuesSetSingleValueMatchExpression(parser, anythingButExpressionToken, matchType);
+                }
             }
 
             if (parser.nextToken() != JsonToken.END_OBJECT) {
                 tooManyElements(parser);
             }
-            // Complete the object closure for equals-ignore-case
-            if (isIgnoreCase && parser.nextToken() != JsonToken.END_OBJECT) {
+            // Complete the object closure when a set is present
+            if (matchType != MatchType.ANYTHING_BUT && parser.nextToken() != JsonToken.END_OBJECT) {
                 tooManyElements(parser);
             }
 
@@ -494,7 +498,13 @@ public class JsonRuleCompiler {
                 barf(parser, "wildcard match pattern must be a string");
             }
             final String parserText = parser.getText();
-            final Patterns pattern = Patterns.wildcardMatch('"' + parserText + '"');
+            String value = '"' + parserText + '"';
+            try {
+                getParser().parse(MatchType.WILDCARD, value);
+            } catch (ParseException e) {
+                barf(parser, e.getLocalizedMessage());
+            }
+            final Patterns pattern = Patterns.wildcardMatch(value);
             if (parser.nextToken() != JsonToken.END_OBJECT) {
                 barf(parser, "Only one key allowed in match expression");
             }
@@ -503,6 +513,56 @@ public class JsonRuleCompiler {
             barf(parser, "Unrecognized match type " + matchTypeName);
             return null; // unreachable statement, but java can't see that?
         }
+    }
+
+    private static Patterns processPrefixEqualsIgnoreCaseExpression(final JsonParser parser) throws IOException {
+        final JsonToken prefixObject = parser.nextToken();
+        if (prefixObject != JsonToken.FIELD_NAME) {
+            barf(parser, "Prefix expression name not found");
+        }
+
+        final String prefixObjectOp = parser.getCurrentName();
+        if (!Constants.EQUALS_IGNORE_CASE.equals(prefixObjectOp)) {
+            barf(parser, "Unsupported prefix pattern: " + prefixObjectOp);
+        }
+
+        final JsonToken prefixEqualsIgnoreCase = parser.nextToken();
+        if (prefixEqualsIgnoreCase != JsonToken.VALUE_STRING) {
+            barf(parser, "equals-ignore-case match pattern must be a string");
+        }
+        final Patterns pattern = Patterns.prefixEqualsIgnoreCaseMatch('"' + parser.getText());
+        if (parser.nextToken() != JsonToken.END_OBJECT) {
+            barf(parser, "Only one key allowed in match expression");
+        }
+        if (parser.nextToken() != JsonToken.END_OBJECT) {
+            barf(parser, "Only one key allowed in match expression");
+        }
+        return pattern;
+    }
+
+    private static Patterns processSuffixEqualsIgnoreCaseExpression(final JsonParser parser) throws IOException {
+        final JsonToken suffixObject = parser.nextToken();
+        if (suffixObject != JsonToken.FIELD_NAME) {
+            barf(parser, "Suffix expression name not found");
+        }
+
+        final String suffixObjectOp = parser.getCurrentName();
+        if (!Constants.EQUALS_IGNORE_CASE.equals(suffixObjectOp)) {
+            barf(parser, "Unsupported suffix pattern: " + suffixObjectOp);
+        }
+
+        final JsonToken suffixEqualsIgnoreCase = parser.nextToken();
+        if (suffixEqualsIgnoreCase != JsonToken.VALUE_STRING) {
+            barf(parser, "equals-ignore-case match pattern must be a string");
+        }
+        final Patterns pattern = Patterns.suffixEqualsIgnoreCaseMatch(parser.getText() + '"');
+        if (parser.nextToken() != JsonToken.END_OBJECT) {
+            barf(parser, "Only one key allowed in match expression");
+        }
+        if (parser.nextToken() != JsonToken.END_OBJECT) {
+            barf(parser, "Only one key allowed in match expression");
+        }
+        return pattern;
     }
 
     private static Patterns processAnythingButListMatchExpression(JsonParser parser) throws JsonParseException {
@@ -519,7 +579,7 @@ public class JsonRuleCompiler {
                         break;
                     case VALUE_NUMBER_FLOAT:
                     case VALUE_NUMBER_INT:
-                        values.add(ComparableNumber.generate(parser.getDoubleValue()));
+                        values.add(ComparableNumber.generate(parser.getText()));
                         hasNumber = true;
                         break;
                     default:
@@ -537,25 +597,51 @@ public class JsonRuleCompiler {
         return AnythingBut.anythingButMatch(values, hasNumber);
     }
 
-    private static Patterns processAnythingButEqualsIgnoreCaseListMatchExpression(JsonParser parser) throws JsonParseException {
+    private static Patterns processAnythingButValuesSetMatchExpression(JsonParser parser, MatchType matchType)
+            throws JsonParseException {
         JsonToken token;
         Set<String> values = new HashSet<>();
-        boolean hasNumber = false;
         try {
             while ((token = parser.nextToken()) != JsonToken.END_ARRAY) {
                 switch (token) {
                     case VALUE_STRING:
-                        values.add('"' + parser.getText() + '"');
+                        String text = parser.getText();
+                        if ((matchType == MatchType.ANYTHING_BUT_PREFIX || matchType ==  MatchType.ANYTHING_BUT_SUFFIX)
+                                && text.isEmpty()) {
+                            barf(parser, "Null prefix/suffix not allowed");
+                        }
+                        values.add(generateValueBasedOnMatchType(text, matchType));
                         break;
                     default:
-                        barf(parser, "Inside anything-but/equals-ignore-case list, number|start|null|boolean is not supported.");
+                        if (matchType == MatchType.ANYTHING_BUT_IGNORE_CASE) {
+                            barf(parser, "Inside anything-but/equals-ignore-case list, number|start|null|boolean is not supported.");
+                        } else if (matchType == MatchType.ANYTHING_BUT_WILDCARD) {
+                            barf(parser, "wildcard match pattern must be a string");
+                        } else {
+                            barf(parser, "prefix/suffix match pattern must be a string");
+                        }
                 }
             }
         } catch (IllegalArgumentException | IOException e) {
             barf(parser, e.getMessage());
         }
 
-        return AnythingButEqualsIgnoreCase.anythingButIgnoreCaseMatch(values);
+        switch (matchType) {
+            case ANYTHING_BUT_IGNORE_CASE: return Patterns.anythingButIgnoreCaseMatch(values);
+            case ANYTHING_BUT_PREFIX: return Patterns.anythingButPrefix(values);
+            case ANYTHING_BUT_SUFFIX: return Patterns.anythingButSuffix(values);
+            case ANYTHING_BUT_WILDCARD:
+                for (String value : values) {
+                    try {
+                        getParser().parse(MatchType.ANYTHING_BUT_WILDCARD, value);
+                    } catch (ParseException e) {
+                        barf(parser, e.getLocalizedMessage());
+                    }
+                }
+                return Patterns.anythingButWildcard(values);
+            // Not barfing as this is a code bug rather than bad JSON.
+            default: throw new IllegalArgumentException("processAnythingButValuesSetMatchExpression received invalid matchType of " + matchType);
+        }
     }
 
     private static Patterns processAnythingButMatchExpression(JsonParser parser,
@@ -568,7 +654,7 @@ public class JsonRuleCompiler {
                 break;
             case VALUE_NUMBER_FLOAT:
             case VALUE_NUMBER_INT:
-                values.add(ComparableNumber.generate(parser.getDoubleValue()));
+                values.add(ComparableNumber.generate(parser.getText()));
                 hasNumber = true;
                 break;
             default:
@@ -577,17 +663,57 @@ public class JsonRuleCompiler {
         return AnythingBut.anythingButMatch(values, hasNumber);
     }
 
-    private static Patterns processAnythingButEqualsIgnoreCaseMatchExpression(JsonParser parser,
-                                                              JsonToken anythingButExpressionToken) throws IOException {
+    private static Patterns processAnythingButValuesSetSingleValueMatchExpression(JsonParser parser,
+                JsonToken anythingButExpressionToken, MatchType matchType) throws IOException {
         Set<String> values = new HashSet<>();
         switch (anythingButExpressionToken) {
             case VALUE_STRING:
-                values.add('"' + parser.getText() + '"');
+                String text = parser.getText();
+                if ((matchType == MatchType.ANYTHING_BUT_PREFIX || matchType ==  MatchType.ANYTHING_BUT_SUFFIX)
+                        && text.isEmpty()) {
+                    barf(parser, "Null prefix/suffix not allowed");
+                }
+                values.add(generateValueBasedOnMatchType(text, matchType));
                 break;
             default:
-                barf(parser, "Inside anything-but/equals-ignore-case list, number|start|null|boolean is not supported.");
+                if (matchType == MatchType.ANYTHING_BUT_IGNORE_CASE) {
+                    barf(parser, "Inside anything-but/equals-ignore-case list, number|start|null|boolean is not supported.");
+                } else if (matchType == MatchType.ANYTHING_BUT_WILDCARD) {
+                    barf(parser, "wildcard match pattern must be a string");
+                } else {
+                    barf(parser, "prefix/suffix match pattern must be a string");
+                }
         }
-        return AnythingButEqualsIgnoreCase.anythingButIgnoreCaseMatch(values);
+
+        switch (matchType) {
+            case ANYTHING_BUT_IGNORE_CASE: return Patterns.anythingButIgnoreCaseMatch(values);
+            case ANYTHING_BUT_PREFIX: return Patterns.anythingButPrefix(values);
+            case ANYTHING_BUT_SUFFIX: return Patterns.anythingButSuffix(values);
+            case ANYTHING_BUT_WILDCARD:
+                try {
+                    getParser().parse(MatchType.ANYTHING_BUT_WILDCARD, values.iterator().next());
+                } catch (ParseException e) {
+                    barf(parser, e.getLocalizedMessage());
+                }
+                return Patterns.anythingButWildcard(values);
+            // Not barfing as this is a code bug rather than bad JSON.
+            default: throw new IllegalArgumentException("processAnythingButValuesSetSingleValueMatchExpression received invalid matchType of " + matchType);
+        }
+    }
+
+    private static String generateValueBasedOnMatchType(String text, MatchType matchType) {
+        switch (matchType) {
+            case PREFIX:
+            case PREFIX_EQUALS_IGNORE_CASE:
+            case ANYTHING_BUT_PREFIX:
+                return '"' + text;
+            case SUFFIX:
+            case SUFFIX_EQUALS_IGNORE_CASE:
+            case ANYTHING_BUT_SUFFIX:
+                return text + '"';
+            default:
+                return '"' + text + '"';
+        }
     }
 
     private static Patterns processNumericMatchExpression(final JsonParser parser) throws IOException {
@@ -602,7 +728,7 @@ public class JsonRuleCompiler {
                 if (!token.isNumeric()) {
                     barf(parser, "Value of equals must be numeric");
                 }
-                final double val = parser.getDoubleValue();
+                final String val = parser.getText();
                 if (parser.nextToken() != JsonToken.END_ARRAY) {
                     tooManyElements(parser);
                 }
@@ -611,7 +737,7 @@ public class JsonRuleCompiler {
                 if (!token.isNumeric()) {
                     barf(parser, "Value of >= must be numeric");
                 }
-                final double val = parser.getDoubleValue();
+                final String val = parser.getText();
                 token = parser.nextToken();
                 if (token == JsonToken.END_ARRAY) {
                     return Range.greaterThanOrEqualTo(val);
@@ -622,7 +748,7 @@ public class JsonRuleCompiler {
                 if (!token.isNumeric()) {
                     barf(parser, "Value of > must be numeric");
                 }
-                final double val = parser.getDoubleValue();
+                final String val = parser.getText();
                 token = parser.nextToken();
                 if (token == JsonToken.END_ARRAY) {
                     return Range.greaterThan(val);
@@ -633,7 +759,7 @@ public class JsonRuleCompiler {
                 if (!token.isNumeric()) {
                     barf(parser, "Value of <= must be numeric");
                 }
-                final double top = parser.getDoubleValue();
+                final String top = parser.getText();
                 if (parser.nextToken() != JsonToken.END_ARRAY) {
                     tooManyElements(parser);
                 }
@@ -643,7 +769,7 @@ public class JsonRuleCompiler {
                 if (!token.isNumeric()) {
                     barf(parser, "Value of < must be numeric");
                 }
-                final double top = parser.getDoubleValue();
+                final String top = parser.getText();
                 if (parser.nextToken() != JsonToken.END_ARRAY) {
                     tooManyElements(parser);
                 }
@@ -661,7 +787,7 @@ public class JsonRuleCompiler {
 
     private static Patterns completeNumericRange(final JsonParser parser,
                                                  final JsonToken token,
-                                                 final double bottom,
+                                                 final String bottom,
                                                  final boolean openBottom) throws IOException {
         if (token != JsonToken.VALUE_STRING) {
             barf(parser, "Bad value in numeric range: " + parser.getText());
@@ -677,7 +803,7 @@ public class JsonRuleCompiler {
         if (!parser.nextToken().isNumeric()) {
             barf(parser, "Value of " + operator + " must be numeric");
         }
-        final double top = parser.getDoubleValue();
+        final String top = parser.getText();
         if (parser.nextToken() != JsonToken.END_ARRAY) {
             barf(parser, "Too many terms in numeric range expression");
         }

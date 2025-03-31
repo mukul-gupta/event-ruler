@@ -2,6 +2,8 @@ package software.amazon.event.ruler;
 
 import com.fasterxml.jackson.core.JsonParseException;
 import com.fasterxml.jackson.databind.JsonNode;
+
+import javax.annotation.Nonnull;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.Reader;
@@ -16,7 +18,8 @@ import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
-import javax.annotation.Nonnull;
+
+import static software.amazon.event.ruler.SetOperations.intersection;
 
 /**
  *  Represents a state machine used to match name/value patterns to rules.
@@ -38,6 +41,11 @@ public class GenericMachine<T> {
     private static final int MAXIMUM_RULE_SIZE = 256;
 
     /**
+     * Configuration for the Machine.
+     */
+    private final GenericMachineConfiguration configuration;
+
+    /**
      * The start state of matching and adding rules.
      */
     private final NameState startState = new NameState();
@@ -56,7 +64,14 @@ public class GenericMachine<T> {
      */
     private final SubRuleContext.Generator subRuleContextGenerator = new SubRuleContext.Generator();
 
-    public GenericMachine() {}
+    @Deprecated
+    public GenericMachine() {
+        this(builder().buildConfig());
+    }
+
+    protected GenericMachine(GenericMachineConfiguration configuration) {
+        this.configuration = configuration;
+    }
 
     /**
      * Return any rules that match the fields in the event in a way that is Array-Consistent (thus trailing "AC" on
@@ -68,12 +83,12 @@ public class GenericMachine<T> {
     @SuppressWarnings("unchecked")
     public List<T> rulesForJSONEvent(final String jsonEvent) throws Exception {
         final Event event = new Event(jsonEvent, this);
-        return (List<T>) ACFinder.matchRules(event, this);
+        return (List<T>) ACFinder.matchRules(event, this, subRuleContextGenerator);
     }
     @SuppressWarnings("unchecked")
     public List<T> rulesForJSONEvent(final JsonNode eventRoot) {
         final Event event = new Event(eventRoot, this);
-        return (List<T>) ACFinder.matchRules(event, this);
+        return (List<T>) ACFinder.matchRules(event, this, subRuleContextGenerator);
     }
 
     /**
@@ -86,7 +101,7 @@ public class GenericMachine<T> {
     @Deprecated
     @SuppressWarnings("unchecked")
     public List<T> rulesForEvent(final String jsonEvent) {
-        return (List<T>) Finder.rulesForEvent(Event.flatten(jsonEvent), this);
+        return (List<T>) Finder.rulesForEvent(Event.flatten(jsonEvent), this, subRuleContextGenerator);
     }
 
     /**
@@ -97,7 +112,7 @@ public class GenericMachine<T> {
      */
     @SuppressWarnings("unchecked")
     public List<T> rulesForEvent(final List<String> event) {
-        return (List<T>) Finder.rulesForEvent(event, this);
+        return (List<T>) Finder.rulesForEvent(event, this, subRuleContextGenerator);
     }
 
     /**
@@ -110,7 +125,7 @@ public class GenericMachine<T> {
     @Deprecated
     @SuppressWarnings("unchecked")
     public List<T> rulesForEvent(final JsonNode eventRoot) {
-        return (List<T>) Finder.rulesForEvent(Event.flatten(eventRoot), this);
+        return (List<T>) Finder.rulesForEvent(Event.flatten(eventRoot), this, subRuleContextGenerator);
     }
 
     /**
@@ -121,7 +136,7 @@ public class GenericMachine<T> {
      */
     @SuppressWarnings("unchecked")
     public List<T> rulesForEvent(final String[] event) {
-        return (List<T>) Finder.rulesForEvent(event, this);
+        return (List<T>) Finder.rulesForEvent(event, this, subRuleContextGenerator);
     }
 
     /**
@@ -240,7 +255,7 @@ public class GenericMachine<T> {
         Collections.sort(keys);
         synchronized(this) {
             final List<String> deletedKeys =  new ArrayList<>();
-            final Set<Double> candidateSubRuleIds = new HashSet<>();
+            final Set<SubRuleContext> candidateSubRuleIds = new HashSet<>();
             deleteStep(getStartState(), keys, 0, namevals, name, deletedKeys, candidateSubRuleIds);
             // check and delete the key from filedUsed ...
             checkAndDeleteUsedFields(deletedKeys);
@@ -257,15 +272,15 @@ public class GenericMachine<T> {
         deletePatternRule(name, patternMap);
     }
 
-    private Set<Double> deleteStep(final NameState state,
+    private Set<SubRuleContext> deleteStep(final NameState state,
                                    final List<String> keys,
                                    final int keyIndex,
                                    final Map<String, List<Patterns>> patterns,
                                    final T ruleName,
                                    final List<String> deletedKeys,
-                                   final Set<Double> candidateSubRuleIds) {
+                                   final Set<SubRuleContext> candidateSubRuleIds) {
 
-        final Set<Double> deletedSubRuleIds = new HashSet<>();
+        final Set<SubRuleContext> deletedSubRuleIds = new HashSet<>();
         final String key = keys.get(keyIndex);
         ByteMachine byteMachine = state.getTransitionOn(key);
         NameMatcher<NameState> nameMatcher = state.getKeyTransitionOn(key);
@@ -294,7 +309,7 @@ public class GenericMachine<T> {
                 boolean isTerminal = nextKeyIndex == keys.size();
 
                 // Trim the candidate sub-rule ID set to contain only the sub-rule IDs present in the next NameState.
-                Set<Double> nextNameStateSubRuleIds = isTerminal ?
+                Set<SubRuleContext> nextNameStateSubRuleIds = isTerminal ?
                         nextNameState.getTerminalSubRuleIdsForPattern(pattern) :
                         nextNameState.getNonTerminalSubRuleIdsForPattern(pattern);
                 // If no sub-rule IDs are found for next NameState, then we have no candidates, and will return below
@@ -304,8 +319,9 @@ public class GenericMachine<T> {
                     // If candidate set is empty, we are at first NameState, so initialize to next NameState's sub-rule IDs.
                     // When initializing, ensure that sub-rule IDs match the provided rule name for deletion.
                 } else if (candidateSubRuleIds.isEmpty()) {
-                    for (Double nextNameStateSubRuleId : nextNameStateSubRuleIds) {
-                        if (Objects.equals(ruleName, nextNameState.getRule(nextNameStateSubRuleId))) {
+                    for (SubRuleContext nextNameStateSubRuleId : nextNameStateSubRuleIds) {
+                        if (Objects.equals(ruleName,
+                                nextNameStateSubRuleId.getRuleName())) {
                             candidateSubRuleIds.add(nextNameStateSubRuleId);
                         }
                     }
@@ -315,13 +331,16 @@ public class GenericMachine<T> {
                 }
 
                 if (isTerminal) {
-                    for (Double candidateSubRuleId : candidateSubRuleIds) {
-                        if (nextNameState.deleteSubRule(candidateSubRuleId, pattern, true)) {
+                    for (SubRuleContext candidateSubRuleId : candidateSubRuleIds) {
+                        if (nextNameState.deleteSubRule(
+                                candidateSubRuleId.getRuleName(), candidateSubRuleId,
+                                pattern, true)) {
                             deletedSubRuleIds.add(candidateSubRuleId);
                             // Only delete the pattern if the pattern does not transition to the next NameState.
                             if (!doesNameStateContainPattern(nextNameState, pattern) &&
                                     deletePattern(state, key, pattern)) {
                                 deletedKeys.add(key);
+                                state.removeNextNameState(key);
                             }
                         }
                     }
@@ -332,14 +351,16 @@ public class GenericMachine<T> {
                     deletedSubRuleIds.addAll(deleteStep(nextNameState, keys, nextKeyIndex, patterns, ruleName,
                             deletedKeys, new HashSet<>(candidateSubRuleIds)));
 
-                    for (double deletedSubRuleId : deletedSubRuleIds) {
-                        nextNameState.deleteSubRule(deletedSubRuleId, pattern, false);
+                    for (SubRuleContext deletedSubRuleId : deletedSubRuleIds) {
+                        nextNameState.deleteSubRule(deletedSubRuleId.getRuleName(),
+                                deletedSubRuleId, pattern, false);
                     }
 
                     // Unwinding the key recursion, so we aren't on a rule match. Only delete the pattern if the pattern
                     // does not transition to the next NameState.
                     if (!doesNameStateContainPattern(nextNameState, pattern) && deletePattern(state, key, pattern)) {
                         deletedKeys.add(key);
+                        state.removeNextNameState(key);
                     }
                 }
             }
@@ -491,14 +512,14 @@ public class GenericMachine<T> {
                          final Map<String, List<Patterns>> patterns,
                          final T ruleName) {
         List<String> addedKeys = new ArrayList<>();
-        Set<NameState> nameStates[] = new Set[keys.size()];
-        if (addStep(getStartState(), keys, 0, patterns, ruleName, addedKeys, nameStates)) {
-            SubRuleContext context = subRuleContextGenerator.generate();
+        Set<NameState>[] nameStates = new Set[keys.size()];
+        if (addStep(getStartState(), keys, 0, patterns, ruleName, addedKeys, nameStates).isEmpty()) {
+            SubRuleContext context = subRuleContextGenerator.generate(ruleName);
             for (int i = 0; i < keys.size(); i++) {
                 boolean isTerminal = i + 1 == keys.size();
                 for (Patterns pattern : patterns.get(keys.get(i))) {
                     for (NameState nameState : nameStates[i]) {
-                        nameState.addSubRule(ruleName, context.getId(), pattern, isTerminal);
+                        nameState.addSubRule(ruleName, context, pattern, isTerminal);
                     }
                 }
             }
@@ -516,16 +537,17 @@ public class GenericMachine<T> {
      * @param ruleName Name of the rule.
      * @param addedKeys Pass in an empty list - this tracks keys that have been added.
      * @param nameStatesForEachKey Pass in array of length keys.size() - this tracks NameStates accessible by each key.
-     * @return True if and only if the keys and patterns being added represent a new sub-rule. Specifically, there
-     *         exists at least one key or at least one pattern for a key not present in another sub-rule of the rule.
+     * @return The IDs of sub-rules that used the same rule name and added the same patterns for the same keys at
+     *         keyIndex and greater. If keyIndex==0 and the returned set is empty, then the keys and patterns being
+     *         added represent a new sub-rule.
      */
-    private boolean addStep(final NameState state,
-                            final List<String> keys,
-                            final int keyIndex,
-                            final Map<String, List<Patterns>> patterns,
-                            final T ruleName,
-                            List<String> addedKeys,
-                            final Set<NameState>[] nameStatesForEachKey) {
+    private Set<SubRuleContext> addStep(final NameState state,
+                                final List<String> keys,
+                                final int keyIndex,
+                                final Map<String, List<Patterns>> patterns,
+                                final T ruleName,
+                                List<String> addedKeys,
+                                final Set<NameState>[] nameStatesForEachKey) {
 
         final String key = keys.get(keyIndex);
         ByteMachine byteMachine = state.getTransitionOn(key);
@@ -545,6 +567,15 @@ public class GenericMachine<T> {
         // for each pattern, we'll provisionally add it to the BMC, which may already have it.  Pass the states
         // list in in case the BMC doesn't already have a next-step for this pattern and needs to make a new one
         NameState lastNextState = null;
+
+        if (configuration.isAdditionalNameStateReuse()) {
+            lastNextState = state.getNextNameState(key);
+            if (lastNextState == null) {
+                lastNextState = new NameState();
+                state.addNextNameState(key, lastNextState);
+            }
+        }
+
         Set<NameState> nameStates = new HashSet<>();
         if (nameStatesForEachKey[keyIndex] == null) {
             nameStatesForEachKey[keyIndex] = new HashSet<>();
@@ -553,7 +584,6 @@ public class GenericMachine<T> {
             if (isNamePattern(pattern)) {
                 lastNextState = nameMatcher.addPattern(pattern, lastNextState == null ? new NameState() : lastNextState);
             } else {
-                assert byteMachine != null;
                 lastNextState = byteMachine.addPattern(pattern, lastNextState);
             }
             nameStates.add(lastNextState);
@@ -561,28 +591,66 @@ public class GenericMachine<T> {
         }
 
         // Determine if we are adding a new rule or not. If we are not yet at the terminal key, go deeper recursively.
-        // If we are at the terminal key, unwind recursion stack, checking each NameState to see if any pattern for
-        // rule name is new. As soon as one rule+pattern for any NameState is new, we know we are processing a new
-        // sub-rule and can continue returning true without further NameState checks.
-        boolean isRuleNew = false;
+        // If we are at the terminal key, unwind recursion stack. Any sub-rule IDs that have previously added the
+        // rule+pattern for the given key are returned up the recursion stack as our "candidates". At each level of the
+        // stack, we remove any candidates if they did not have the same rule+pattern for that level's key. If our
+        // candidate set becomes empty, we know we are adding a new rule.
+        Set<SubRuleContext> candidateSubRuleIds = null;
+        Set<SubRuleContext> candidateSubRuleIdsForThisKey = null;
         final int nextKeyIndex = keyIndex + 1;
         boolean isTerminal = nextKeyIndex == keys.size();
         for (NameState nameState : nameStates) {
-            if (!isTerminal) {
-                isRuleNew = addStep(nameState, keys, nextKeyIndex, patterns, ruleName, addedKeys, nameStatesForEachKey)
-                        || isRuleNew;
-            }
-            if (!isRuleNew) {
+
+            // At the terminal key, we initialize the candidate IDs to the previously-added sub-rules with the same rule
+            // name and pattern for this key.
+            if (isTerminal) {
+                candidateSubRuleIds = new HashSet<>();
                 for (Patterns pattern : patterns.get(key)) {
-                    if (!nameState.containsRule(ruleName, pattern)) {
-                        isRuleNew = true;
-                        break;
+                    Set<SubRuleContext> subRuleIdsForPattern = nameState.getTerminalSubRuleIdsForPattern(pattern);
+                    Set<SubRuleContext> subRuleIdsForName = subRuleContextGenerator.getIdsGeneratedForName(ruleName);
+                    if (subRuleIdsForPattern != null && subRuleIdsForName != null) {
+                        intersection(subRuleIdsForPattern, subRuleIdsForName, candidateSubRuleIds);
+                    }
+                }
+
+            // At all non-terminal keys, we gather the sub-rule IDs for the key that use the same pattern.
+            } else {
+                candidateSubRuleIds = addStep(nameState, keys, nextKeyIndex, patterns, ruleName,
+                        addedKeys, nameStatesForEachKey);
+                if (candidateSubRuleIds.isEmpty()) {
+                    continue;
+                }
+
+                // This is an optimization for the single pattern, single NameState case. This appears to be the
+                // majority of cases so it's worth the extra code.
+                List<Patterns> patternsForThisKey = patterns.get(key);
+                if (patternsForThisKey.size() == 1 && nameStates.size() == 1) {
+                    candidateSubRuleIdsForThisKey = nameState.getNonTerminalSubRuleIdsForPattern(
+                            patternsForThisKey.get(0));
+                    break;
+                }
+
+                candidateSubRuleIdsForThisKey = new HashSet<>();
+                for (Patterns pattern : patternsForThisKey) {
+                    Set<SubRuleContext> nonTerminalSubRuleIds = nameState.getNonTerminalSubRuleIdsForPattern(pattern);
+                    if (nonTerminalSubRuleIds != null) {
+                        candidateSubRuleIdsForThisKey.addAll(nonTerminalSubRuleIds);
                     }
                 }
             }
         }
 
-        return isRuleNew;
+        // At all non-terminal keys, remove candidates that are not present for this key.
+        if (!isTerminal) {
+            if (candidateSubRuleIdsForThisKey == null) {
+                candidateSubRuleIds.clear();
+            } else {
+                candidateSubRuleIds.retainAll(candidateSubRuleIdsForThisKey);
+            }
+        }
+
+        // Return remaining candidates up the stack.
+        return candidateSubRuleIds;
     }
 
     private boolean hasValuePatterns(List<Patterns> patterns) {
@@ -652,11 +720,23 @@ public class GenericMachine<T> {
      * 2. It will also give you different results based on the order in which you add or remove rules as in
      * some-cases Ruler takes short-cuts for exact matches (see ShortcutTransition for more details).
      * 3. This method isn't thread safe, and so is prefixed with approximate.
+     *
+     * @param maxObjectCount Caps evaluation of object at this threshold.
+     */
+    public int approximateObjectCount(int maxObjectCount) {
+        final HashSet<Object> objectSet = new HashSet<>();
+        startState.gatherObjects(objectSet, maxObjectCount);
+        return Math.min(objectSet.size(), maxObjectCount);
+    }
+
+    @Deprecated
+    /**
+     * Use `approximateObjectCount(int maxObjectCount)` instead.
+     *
+     * Due to unbounded nature of this method, counting can be painfully long.
      */
     public int approximateObjectCount() {
-        final HashSet<Object> objectSet = new HashSet<>();
-        startState.gatherObjects(objectSet);
-        return objectSet.size();
+        return approximateObjectCount(Integer.MAX_VALUE);
     }
 
     @Override
@@ -665,6 +745,39 @@ public class GenericMachine<T> {
                 "startState=" + startState +
                 ", fieldStepsUsedRefCount=" + fieldStepsUsedRefCount +
                 '}';
+    }
+
+    public static <T> Builder<GenericMachine<T>, T> builder() {
+        return new Builder<>();
+    }
+
+    public static class Builder<M extends GenericMachine<T>, T> {
+
+        /**
+         * Normally, NameStates are re-used for a given key subsequence and pattern if this key subsequence and pattern have
+         * been previously added, or if a pattern has already been added for the given key subsequence. Hence by default,
+         * NameState re-use is opportunistic. But by setting this flag to true, NameState re-use will be forced for a key
+         * subsequence. This means that the first pattern being added for a key subsequence will re-use a NameState if that
+         * key subsequence has been added before. Meaning each key subsequence has a single NameState. This improves memory
+         * utilization exponentially in some cases but does lead to more sub-rules being stored in individual NameStates,
+         * which Ruler sometimes iterates over, which can cause a modest runtime performance regression.
+         */
+        private boolean additionalNameStateReuse = false;
+
+        Builder() {}
+
+        public Builder<M,T> withAdditionalNameStateReuse(boolean additionalNameStateReuse) {
+            this.additionalNameStateReuse = additionalNameStateReuse;
+            return this;
+        }
+
+        public M build() {
+            return (M) new GenericMachine<T>(buildConfig());
+        }
+
+        protected GenericMachineConfiguration buildConfig() {
+            return new GenericMachineConfiguration(additionalNameStateReuse);
+        }
     }
 }
 

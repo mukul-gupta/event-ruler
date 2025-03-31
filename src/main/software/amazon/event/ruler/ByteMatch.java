@@ -1,6 +1,7 @@
 package software.amazon.event.ruler;
 
 import java.util.Collections;
+import java.util.Objects;
 import java.util.Set;
 
 /**
@@ -66,16 +67,32 @@ final class ByteMatch extends SingleByteTransition  {
         return true;
     }
 
-    @Override
-    public void gatherObjects(Set<Object> objectSet) {
-        if (!objectSet.contains(this)) { // stops looping
+    public void gatherObjects(Set<Object> objectSet, int maxObjectCount) {
+        if (!objectSet.contains(this) && objectSet.size() < maxObjectCount) { // stops looping
             objectSet.add(this);
-            nextNameState.gatherObjects(objectSet);
+            nextNameState.gatherObjects(objectSet, maxObjectCount);
         }
     }
 
     @Override
     public String toString() {
         return "BM: HC=" + hashCode() + " P=" + pattern  + "(" + pattern.pattern() + ") NNS=" + nextNameState;
+    }
+
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) {
+            return true;
+        }
+        if (o == null || getClass() != o.getClass()) {
+            return false;
+        }
+        ByteMatch byteMatch = (ByteMatch) o;
+        return Objects.equals(pattern, byteMatch.pattern) && Objects.equals(nextNameState, byteMatch.nextNameState);
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hash(pattern, nextNameState);
     }
 }

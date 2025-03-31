@@ -2,18 +2,22 @@ package software.amazon.event.ruler;
 
 import com.fasterxml.jackson.core.JsonParseException;
 import com.fasterxml.jackson.databind.JsonNode;
+import org.junit.Test;
+
 import java.io.ByteArrayInputStream;
+import java.io.IOException;
 import java.io.InputStream;
 import java.io.StringReader;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.Map;
-import org.junit.Test;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
+import static org.junit.Assert.fail;
 
 public class JsonRuleCompilerTest {
 
@@ -26,6 +30,18 @@ public class JsonRuleCompilerTest {
         String event = "{\"account\": 123456789012 }";
         m.addRule("r1", rule);
         assertEquals(1, m.rulesForJSONEvent(event).size());
+    }
+
+    @Test
+    public void testPrefixEqualsIgnoreCaseCompile() {
+        String json = "{\"a\": [ { \"prefix\": { \"equals-ignore-case\": \"child\" } } ] }";
+        assertNull("Good prefix equals-ignore-case should parse", JsonRuleCompiler.check(json));
+    }
+
+    @Test
+    public void testSuffixEqualsIgnoreCaseCompile() {
+        String json = "{\"a\": [ { \"suffix\": { \"equals-ignore-case\": \"child\" } } ] }";
+        assertNull("Good suffix equals-ignore-case should parse", JsonRuleCompiler.check(json));
     }
 
     @Test
@@ -84,7 +100,7 @@ public class JsonRuleCompilerTest {
         for (Patterns p : l) {
             ValuePatterns vp = (ValuePatterns) p;
             if (p.type() == MatchType.NUMERIC_EQ) {
-                assertEquals(ComparableNumber.generate(1.0), vp.pattern());
+                assertEquals(ComparableNumber.generate("1.0"), vp.pattern());
             } else {
                 assertEquals("1", vp.pattern());
             }
@@ -112,17 +128,40 @@ public class JsonRuleCompilerTest {
         assertNull("Good anything-but should parse", JsonRuleCompiler.check(j));
 
         j = "{\"a\": [ { \"anything-but\": { \"prefix\": \"foo\" } } ] }";
-        assertNull("Good anything-but should parse", JsonRuleCompiler.check(j));
+        assertNull("Good anything-but/prefix should parse", JsonRuleCompiler.check(j));
+
+        j = "{\"a\": [ { \"anything-but\": { \"prefix\": [\"abc\", \"123\"] } } ] }";
+        assertNull("Good anything-but/prefix should parse", JsonRuleCompiler.check(j));
 
         j = "{\"a\": [ { \"anything-but\": { \"suffix\": \"foo\" } } ] }";
-        assertNull("Good anything-but should parse", JsonRuleCompiler.check(j));
+        assertNull("Good anything-but/suffix should parse", JsonRuleCompiler.check(j));
+
+        j = "{\"a\": [ { \"anything-but\": { \"suffix\": [\"abc\", \"123\"] } } ] }";
+        assertNull("Good anything-but/suffix should parse", JsonRuleCompiler.check(j));
 
         j = "{\"a\": [ { \"anything-but\": {\"equals-ignore-case\": \"rule\" } } ] }";
+        assertNull("Good anything-but/ignore-case should parse", JsonRuleCompiler.check(j));
+
+        j = "{\"a\": [ { \"anything-but\": {\"equals-ignore-case\": \"\" } } ] }";
         assertNull("Good anything-but/ignore-case should parse", JsonRuleCompiler.check(j));
 
         j = "{\"a\": [ { \"anything-but\": {\"equals-ignore-case\": [\"abc\", \"123\"] } } ] }";
         assertNull("Good anything-but/ignore-case should parse", JsonRuleCompiler.check(j));
 
+        j = "{\"a\": [ { \"anything-but\": {\"equals-ignore-case\": [\"abc\", \"\"] } } ] }";
+        assertNull("Good anything-but/ignore-case should parse", JsonRuleCompiler.check(j));
+
+        j = "{\"a\": [ { \"anything-but\": { \"wildcard\": \"foo*bar\" } } ] }";
+        assertNull("Good anything-but/wildcard should parse", JsonRuleCompiler.check(j));
+
+        j = "{\"a\": [ { \"anything-but\": { \"wildcard\": \"\" } } ] }";
+        assertNull("Good anything-but/wildcard should parse", JsonRuleCompiler.check(j));
+
+        j = "{\"a\": [ { \"anything-but\": { \"wildcard\": [\"foo*bar\", \"*foobar*\"] } } ] }";
+        assertNull("Good anything-but/wildcard should parse", JsonRuleCompiler.check(j));
+
+        j = "{\"a\": [ { \"anything-but\": { \"wildcard\": [\"foo*bar\", \"\"] } } ] }";
+        assertNull("Good anything-but/wildcard should parse", JsonRuleCompiler.check(j));
 
         j = "{\"a\": [ { \"exactly\": \"child\" } ] }";
         assertNull("Good exact-match should parse", JsonRuleCompiler.check(j));
@@ -162,14 +201,49 @@ public class JsonRuleCompilerTest {
                 "{\"a\": [ { \"anything-but\": { \"prefix\": \"\" } } ] }",
                 "{\"a\": [ { \"anything-but\": { \"prefix\": \"foo\", \"a\":1 } } ] }",
                 "{\"a\": [ { \"anything-but\": { \"prefix\": \"foo\" }, \"x\": 1 } ] }",
+                "{\"a\": [ { \"anything-but\": { \"prefix\": [\"1\", \"2\" \"3\"] } } ] }", // missing ,
+                "{\"a\": [ { \"anything-but\": { \"prefix\": [\"1\", \"\"] } } ] }", // no empty string
+                "{\"a\": [ { \"anything-but\": { \"prefix\": [1, 2, 3] } } ] }", // no numbers
+                "{\"a\": [ { \"anything-but\": { \"prefix\": [\"1\", \"2\" } } ] }", // missing ]
+                "{\"a\": [ { \"anything-but\": { \"prefix\": [\"1\", \"2\" ] } ] }", // missing }
                 "{\"a\": [ { \"anything-but\": { \"suffix\": 27 } } ] }",
                 "{\"a\": [ { \"anything-but\": { \"suffix\": \"\" } } ] }",
                 "{\"a\": [ { \"anything-but\": { \"suffix\": \"foo\", \"a\":1 } } ] }",
                 "{\"a\": [ { \"anything-but\": { \"suffix\": \"foo\" }, \"x\": 1 } ] }",
-                "{\"a\": [ { \"anything-but\" : { \"equals-ignore-case\": [1, 2 3] } } ] }",
-                "{\"a\": [ { \"anything-but\": {\"equals-ignore-case\": [1, 2, 3] } } ] }", // no numbers
+                "{\"a\": [ { \"anything-but\": { \"suffix\": [\"1\", \"2\" \"3\"] } } ] }", // missing ,
+                "{\"a\": [ { \"anything-but\": { \"suffix\": [\"1\", \"\"] } } ] }", // no empty string
+                "{\"a\": [ { \"anything-but\": { \"suffix\": [1, 2, 3] } } ] }", // no numbers
+                "{\"a\": [ { \"anything-but\": { \"suffix\": [\"1\", \"2\" } } ] }", // missing ]
+                "{\"a\": [ { \"anything-but\": { \"suffix\": [\"1\", \"2\" ] } ] }", // missing }
+                "{\"a\": [ { \"anything-but\": { \"equals-ignore-case\": [\"1\", \"2\" \"3\"] } } ] }", // missing ,
+                "{\"a\": [ { \"anything-but\": { \"equals-ignore-case\": [1, 2, 3] } } ] }", // no numbers
+                "{\"a\": [ { \"anything-but\": { \"equals-ignore-case\": [\"1\", \"2\" } } ] }", // missing ]
+                "{\"a\": [ { \"anything-but\": { \"equals-ignore-case\": [\"1\", \"2\" ] } ] }", // missing }
+                "{\"a\": [ { \"anything-but\": { \"wildcard\": 27 } } ] }",
+                "{\"a\": [ { \"anything-but\": { \"wildcard\": \"foo\", \"a\":1 } } ] }",
+                "{\"a\": [ { \"anything-but\": { \"wildcard\": \"foo\" }, \"x\": 1 } ] }",
+                "{\"a\": [ { \"anything-but\": { \"wildcard\": \"foo**bar\" } } ] }",
+                "{\"a\": [ { \"anything-but\": { \"wildcard\": \"foo*bar\\\" } } ] }",
+                "{\"a\": [ { \"anything-but\": { \"wildcard\": [\"1\", \"2\" \"3\"] } } ] }", // missing ,
+                "{\"a\": [ { \"anything-but\": { \"wildcard\": [\"1\", \"foo**bar\"] } } ] }", // no consecutive *'s
+                "{\"a\": [ { \"anything-but\": { \"wildcard\": [\"1\", \"foo*bar\\\"] } } ] }", // no ending backslash
+                "{\"a\": [ { \"anything-but\": { \"wildcard\": [1, 2, 3] } } ] }", // no numbers
+                "{\"a\": [ { \"anything-but\": { \"wildcard\": [\"1\", \"2\" } } ] }", // missing ]
+                "{\"a\": [ { \"anything-but\": { \"wildcard\": [\"1\", \"2\" ] } ] }", // missing }
                 "{\"a\": [ { \"equals-ignore-case\": 5 } ] }",
                 "{\"a\": [ { \"equals-ignore-case\": [ \"abc\" ] } ] }",
+                "{\"a\": [ { \"prefix\": { \"invalid-expression\": [ \"abc\" ] } } ] }",
+                "{\"a\": [ { \"prefix\": { \"equals-ignore-case\": 5 } } ] }",
+                "{\"a\": [ { \"prefix\": { \"equals-ignore-case\": [ \"abc\" ] } } ] }",
+                "{\"a\": [ { \"prefix\": { \"equals-ignore-case\": \"abc\", \"test\": \"def\" } } ] }",
+                "{\"a\": [ { \"prefix\": { \"equals-ignore-case\": \"abc\" }, \"test\": \"def\" } ] }",
+                "{\"a\": [ { \"prefix\": { \"equals-ignore-case\": [ 1, 2 3 ] } } ] }",
+                "{\"a\": [ { \"suffix\": { \"invalid-expression\": [ \"abc\" ] } } ] }",
+                "{\"a\": [ { \"suffix\": { \"equals-ignore-case\": 5 } } ] }",
+                "{\"a\": [ { \"suffix\": { \"equals-ignore-case\": [ \"abc\" ] } } ] }",
+                "{\"a\": [ { \"suffix\": { \"equals-ignore-case\": \"abc\", \"test\": \"def\" } } ] }",
+                "{\"a\": [ { \"suffix\": { \"equals-ignore-case\": \"abc\" }, \"test\": \"def\" } ] }",
+                "{\"a\": [ { \"suffix\": { \"equals-ignore-case\": [ 1, 2 3 ] } } ] }",
                 "{\"a\": [ { \"wildcard\": 5 } ] }",
                 "{\"a\": [ { \"wildcard\": [ \"abc\" ] } ] }"
         };
@@ -213,20 +287,20 @@ public class JsonRuleCompilerTest {
     @Test
     public void testNumericExpressions() {
         String[] goods = {
-                "[\"=\", 3.8]", "[\"=\", 0.00000033]", "[\"=\", -4e-8]", "[\"=\", 55555]",
-                "[\"<\", 3.8]", "[\"<\", 0.00000033]", "[\"<\", -4e-8]", "[\"<\", 55555]",
-                "[\">\", 3.8]", "[\">\", 0.00000033]", "[\">\", -4e-8]", "[\">\", 55555]",
-                "[\"<=\", 3.8]", "[\"<=\", 0.00000033]", "[\"<=\", -4e-8]", "[\"<=\", 55555]",
-                "[\">=\", 3.8]", "[\">=\", 0.00000033]", "[\">=\", -4e-8]", "[\">=\", 55555]",
+                "[\"=\", 3.8]", "[\"=\", 0.000033]", "[\"=\", -4e-6]", "[\"=\", 55555]", "[\"=\", 1E-320]",
+                "[\"<\", 3.8]", "[\"<\", 0.000033]", "[\"<\", -4e-6]", "[\"<\", 55555]", "[\"<\", 1E-320]",
+                "[\">\", 3.8]", "[\">\", 0.000033]", "[\">\", -4e-6]", "[\">\", 55555]", "[\">\", 1E-320]",
+                "[\"<=\", 3.8]", "[\"<=\", 0.000033]", "[\"<=\", -4e-6]", "[\"<=\", 55555]", "[\"<=\", 1E-320]",
+                "[\">=\", 3.8]", "[\">=\", 0.000033]", "[\">=\", -4e-6]", "[\">=\", 55555]", "[\">=\", 1E-320]",
                 "[\">\", 0, \"<\", 1]", "[\">=\", 0, \"<\", 1]",
                 "[\">\", 0, \"<=\", 1]", "[\">=\", 0, \"<=\", 1]"
         };
 
-        String[] bads = {
-                "[\"=\", true]", "[\"=\", 2.0e22]", "[\"=\", \"-4e-8\"]", "[\"=\"]",
-                "[\"<\", true]", "[\"<\", 2.0e22]", "[\"<\", \"-4e-8\"]", "[\"<\"]",
-                "[\">=\", true]", "[\">=\", 2.0e22]", "[\">=\", \"-4e-8\"]", "[\">=\"]",
-                "[\"<=\", true]", "[\"<=\", 2.0e22]", "[\"<=\", \"-4e-8\"]", "[\"<=\"]",
+        String[] bads = new String[]{
+                "[\"=\", true]", "[\"=\", 2.0e422]", "[\"=\", \"-4e-6\"]", "[\"=\"]", "[\"=\", 1E309]", "[\"=\", 1E-325]",
+                "[\"<\", true]", "[\"<\", 2.0e422]", "[\"<\", \"-4e-6\"]", "[\"<\"]", "[\"=\", 1E309]", "[\"=\", 1E-325]",
+                "[\">=\", true]", "[\">=\", 2.0e422]", "[\">=\", \"-4e-6\"]", "[\">=\"]", "[\"=\", 1E309]", "[\"=\", 1E-325]",
+                "[\"<=\", true]", "[\"<=\", 2.0e422]", "[\"<=\", \"-4e-6\"]", "[\"<=\"]", "[\"=\", 1E309]", "[\"=\", 1E-325]",
                 "[\"<>\", 1, \">\", 0]", "[\"==\", 1, \">\", 0]",
                 "[\"<\", 1, \">\", 0]", "[\">\", 1, \"<\", 1]",
                 "[\">\", 30, \"<\", 1]", "[\">\", 1, \"<\", 30, false]"
@@ -438,12 +512,12 @@ public class JsonRuleCompilerTest {
         assertTrue(rules.isArray());
         assertTrue(machine.isEmpty());
 
-        final int expectedSubRuleSize [] = {2, 4, 3, 4, 2};
-        final String expectedCompiledRules [] = {
+        final int[] expectedSubRuleSize = {2, 4, 3, 4, 2};
+        final String[] expectedCompiledRules = {
                 "[{metricName=[VP:\"CPUUtilization\" (T:EXACT), VP:\"ReadLatency\" (T:EXACT)]}, {namespace=[VP:\"AWS/EC2\" (T:EXACT), VP:\"AWS/ES\" (T:EXACT)]}]",
                 "[{detail.source=[VP:\"aws.cloudwatch\" (T:EXACT)], metricName=[VP:\"CPUUtilization\" (T:EXACT), VP:\"ReadLatency\" (T:EXACT)]}, {namespace=[VP:\"AWS/EC2\" (T:EXACT), VP:\"AWS/ES\" (T:EXACT)], detail.source=[VP:\"aws.cloudwatch\" (T:EXACT)]}, {detail.detail-type=[VP:\"CloudWatch Alarm State Change\" (T:EXACT)], metricName=[VP:\"CPUUtilization\" (T:EXACT), VP:\"ReadLatency\" (T:EXACT)]}, {namespace=[VP:\"AWS/EC2\" (T:EXACT), VP:\"AWS/ES\" (T:EXACT)], detail.detail-type=[VP:\"CloudWatch Alarm State Change\" (T:EXACT)]}]",
                 "[{source=[VP:\"aws.cloudwatch\" (T:EXACT)], metricName=[VP:\"CPUUtilization\" (T:EXACT), VP:\"ReadLatency\" (T:EXACT)]}, {namespace=[VP:\"AWS/EC2\" (T:EXACT), VP:\"AWS/ES\" (T:EXACT)], metricType=[VP:\"MetricType\" (T:EXACT)], source=[VP:\"aws.cloudwatch\" (T:EXACT)]}, {source=[VP:\"aws.cloudwatch\" (T:EXACT)], scope=[VP:\"Service\" (T:EXACT)]}]",
-                "[{source=[VP:\"aws.cloudwatch\" (T:EXACT)], metricName=[VP:\"CPUUtilization\" (T:EXACT), VP:\"ReadLatency\" (T:EXACT)]}, {namespace=[VP:\"AWS/EC2\" (T:EXACT), VP:\"AWS/ES\" (T:EXACT)], metricType=[VP:\"MetricType\" (T:EXACT)], source=[VP:\"aws.cloudwatch\" (T:EXACT)], metricId=[VP:11C379816DD880 (T:NUMERIC_EQ), VP:1234 (T:EXACT)]}, {namespace=[VP:\"AWS/EC2\" (T:EXACT), VP:\"AWS/ES\" (T:EXACT)], metricType=[VP:\"MetricType\" (T:EXACT)], spaceId=[VP:11C379737B4A00 (T:NUMERIC_EQ), VP:1000 (T:EXACT)], source=[VP:\"aws.cloudwatch\" (T:EXACT)]}, {source=[VP:\"aws.cloudwatch\" (T:EXACT)], scope=[VP:\"Service\" (T:EXACT)]}]",
+                "[{source=[VP:\"aws.cloudwatch\" (T:EXACT)], metricName=[VP:\"CPUUtilization\" (T:EXACT), VP:\"ReadLatency\" (T:EXACT)]}, {namespace=[VP:\"AWS/EC2\" (T:EXACT), VP:\"AWS/ES\" (T:EXACT)], metricType=[VP:\"MetricType\" (T:EXACT)], source=[VP:\"aws.cloudwatch\" (T:EXACT)], metricId=[VP:[127, 64, 73, 82, 0, 0, 0, 0, 0, 0] (T:NUMERIC_EQ), VP:1234 (T:EXACT)]}, {namespace=[VP:\"AWS/EC2\" (T:EXACT), VP:\"AWS/ES\" (T:EXACT)], metricType=[VP:\"MetricType\" (T:EXACT)], spaceId=[VP:[127, 64, 71, 80, 0, 0, 0, 0, 0, 0] (T:NUMERIC_EQ), VP:1000 (T:EXACT)], source=[VP:\"aws.cloudwatch\" (T:EXACT)]}, {source=[VP:\"aws.cloudwatch\" (T:EXACT)], scope=[VP:\"Service\" (T:EXACT)]}]",
                 "[{detail.state.value=[VP:\"ALARM\" (T:EXACT)], source=[VP:\"aws.cloudwatch\" (T:EXACT)], withConfiguration.metrics.metricStat.metric.namespace=[VP:\"AWS/EC2\" (T:EXACT)]}, {detail.state.value=[VP:\"ALARM\" (T:EXACT)], source=[VP:\"aws.cloudwatch\" (T:EXACT)], withoutConfiguration.metric.name=[VP:\"AWS/Default\" (T:EXACT)]}]"
         };
         int i = 0;
@@ -457,7 +531,7 @@ public class JsonRuleCompilerTest {
             machine.addRule("rule-" + i, ruleStr);
             i++;
         }
-        assertTrue(!machine.isEmpty());
+        assertFalse(machine.isEmpty());
 
         // after delete the rule, verify the machine become empty again.
         i = 0;
@@ -498,11 +572,11 @@ public class JsonRuleCompilerTest {
         assertTrue(rules.isArray());
         assertTrue(machine.isEmpty());
 
-        final String expectedCompiledRules [] = {
-                "{$or=[0A000000/0A0000FF:false/false (T:NUMERIC_RANGE)]}",
+        final String[] expectedCompiledRules = {
+                "{$or=[0A000000/0A0000FF:false/false:true (T:NUMERIC_RANGE)]}",
                 "{$or.namespace=[VP:\"AWS/EC2\" (T:EXACT), VP:\"AWS/ES\" (T:EXACT)], source=[VP:\"aws.cloudwatch\" (T:EXACT)], $or.metricType=[VP:\"MetricType\" (T:EXACT)]}",
-                "{detail.$or=[11C37937E08000/11C379382CCB40:true/false (T:NUMERIC_RANGE), 0A000000/0AFFFFFF:false/false (T:NUMERIC_RANGE)], time=[VP:\"2017-10-02 (T:PREFIX)]}",
-                "{detail.$or=[11C37937E08000/11C379382CCB40:true/false (T:NUMERIC_RANGE), 11C37938791680/2386F26FC10000:true/false (T:NUMERIC_RANGE)]}"
+                "{detail.$or=[[127, 0, 0, 0, 0, 0, 0, 0, 0, 0]/[127, 64, 10, 0, 0, 0, 0, 0, 0, 0]:true/false:false (T:NUMERIC_RANGE), 0A000000/0AFFFFFF:false/false:true (T:NUMERIC_RANGE)], time=[VP:\"2017-10-02 (T:PREFIX)]}",
+                "{detail.$or=[[127, 0, 0, 0, 0, 0, 0, 0, 0, 0]/[127, 64, 10, 0, 0, 0, 0, 0, 0, 0]:true/false:false (T:NUMERIC_RANGE), [127, 64, 18, 0, 0, 0, 0, 0, 0, 0]/[127, 127, 119, 127, 127, 127, 127, 127, 127, 127]:true/false:false (T:NUMERIC_RANGE)]}"
         };
 
         int i = 0;
@@ -517,7 +591,7 @@ public class JsonRuleCompilerTest {
 
         // verify each rule had thrown JsonParseException.
         assertEquals(rules.size(), i);
-        assertTrue(!machine.isEmpty());
+        assertFalse(machine.isEmpty());
 
         // verify the legacy rules with using "$or" as normal field can not work with the new JsonRuleCompiler
         i = 0;
@@ -535,4 +609,27 @@ public class JsonRuleCompilerTest {
         assertTrue(machine.isEmpty());
     }
 
+    @Test
+    public void testWildcardConsecutiveWildcards() throws IOException {
+        try {
+            JsonRuleCompiler.compile("{\"key\": [{\"wildcard\": \"abc**def\"}]}");
+            fail("Expected JSONParseException");
+        } catch (JsonParseException e) {
+            assertEquals("Consecutive wildcard characters at pos 4\n" +
+                            " at [Source: (String)\"{\"key\": [{\"wildcard\": \"abc**def\"}]}\"; line: 1, column: 33]",
+                    e.getMessage());
+        }
+    }
+
+    @Test
+    public void testWildcardInvalidEscapeCharacter() throws IOException {
+        try {
+            JsonRuleCompiler.compile("{\"key\": [{\"wildcard\": \"a*c\\def\"}]}");
+            fail("Expected JSONParseException");
+        } catch (JsonParseException e) {
+            assertEquals("Unrecognized character escape 'd' (code 100)\n" +
+                            " at [Source: (String)\"{\"key\": [{\"wildcard\": \"a*c\\def\"}]}\"; line: 1, column: 28]",
+                    e.getMessage());
+        }
+    }
 }

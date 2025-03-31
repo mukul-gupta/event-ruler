@@ -44,7 +44,7 @@ class ACTask {
     /*
      *  Add a step to the queue for later consideration
      */
-    void addStep(final int fieldIndex, final NameState nameState, final Set<Double> candidateSubRuleIds,
+    void addStep(final int fieldIndex, final NameState nameState, final Set<SubRuleContext> candidateSubRuleIds,
                  final ArrayMembership membershipSoFar) {
         stepQueue.add(new ACStep(fieldIndex, nameState, candidateSubRuleIds, membershipSoFar));
     }
@@ -57,19 +57,21 @@ class ACTask {
         return new ArrayList<>(matchingRules);
     }
 
-    void collectRules(final Set<Double> candidateSubRuleIds, final NameState nameState, final Patterns pattern) {
-        Set<Double> terminalSubRuleIds = nameState.getTerminalSubRuleIdsForPattern(pattern);
+    void collectRules(final Set<SubRuleContext> candidateSubRuleIds, final NameState nameState, final Patterns pattern,
+                      final SubRuleContext.Generator subRuleContextGenerator) {
+        Set<SubRuleContext> terminalSubRuleIds = nameState.getTerminalSubRuleIdsForPattern(pattern);
         if (terminalSubRuleIds == null) {
             return;
         }
 
         // If no candidates, that means we're on the first step, so all sub-rules are candidates.
         if (candidateSubRuleIds == null || candidateSubRuleIds.isEmpty()) {
-            for (Double terminalSubRuleId : terminalSubRuleIds) {
-                matchingRules.add(nameState.getRule(terminalSubRuleId));
+            for (SubRuleContext terminalSubRuleId : terminalSubRuleIds) {
+                matchingRules.add(terminalSubRuleId.getRuleName());
             }
         } else {
-            intersection(candidateSubRuleIds, terminalSubRuleIds, matchingRules, id -> nameState.getRule(id));
+            intersection(candidateSubRuleIds, terminalSubRuleIds, matchingRules,
+                    SubRuleContext::getRuleName);
         }
     }
 }

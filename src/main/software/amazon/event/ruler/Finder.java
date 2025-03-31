@@ -44,10 +44,12 @@ class Finder {
      *
      * @param event the fields are those from the JSON expression of the event, sorted by key.
      * @param machine the compiled state machine
+     * @param subRuleContextGenerator the sub-rule context generator
      * @return list of rule names that match. The list may be empty but never null.
      */
-    static List<Object> rulesForEvent(final String[] event, final GenericMachine<?> machine) {
-        return find(new Task(event, machine));
+    static List<Object> rulesForEvent(final String[] event, final GenericMachine<?> machine,
+                                      final SubRuleContext.Generator subRuleContextGenerator) {
+        return find(new Task(event, machine), subRuleContextGenerator);
     }
 
     /**
@@ -55,32 +57,35 @@ class Finder {
      *
      * @param event the fields are those from the JSON expression of the event, sorted by key.
      * @param machine the compiled state machine
+     * @param subRuleContextGenerator the sub-rule context generator
      * @return list of rule names that match. The list may be empty but never null.
      */
-    static List<Object> rulesForEvent(final List<String> event, final GenericMachine<?> machine) {
-        return find(new Task(event, machine));
+    static List<Object> rulesForEvent(final List<String> event, final GenericMachine<?> machine,
+                                      final SubRuleContext.Generator subRuleContextGenerator) {
+        return find(new Task(event, machine), subRuleContextGenerator);
     }
 
-    private static List<Object> find(final Task task) {
+    private static List<Object> find(final Task task, final SubRuleContext.Generator subRuleContextGenerator) {
 
         // bootstrap the machine: Start state, first token
         NameState startState = task.startState();
         if (startState == null) {
             return Collections.emptyList();
         }
-        moveFrom(null, startState, 0, task);
+        moveFrom(null, startState, 0, task, subRuleContextGenerator);
 
         // each iteration removes a Step and adds zero or more new ones
         while (task.stepsRemain()) {
-            tryStep(task);
+            tryStep(task, subRuleContextGenerator);
         }
 
         return task.getMatchedRules();
     }
 
     // Move from a state.  Give all the remaining tokens a chance to transition from it
-    private static void moveFrom(final Set<Double> candidateSubRuleIdsForNextStep, final NameState nameState,
-                                 final int tokenIndex, final Task task) {
+    private static void moveFrom(final Set<SubRuleContext> candidateSubRuleIdsForNextStep, final NameState nameState,
+                                 final int tokenIndex, final Task task,
+                                 final SubRuleContext.Generator subRuleContextGenerator) {
         /*
          * The Name Matchers look for an [ { exists: false } ] match. They
          * will match if a particular key is not present
@@ -96,7 +101,7 @@ class Finder {
          * the final state can still be evaluated to true if the particular event
          * does not have the key configured for [ { exists: false } ].
          */
-        tryNameMatching(candidateSubRuleIdsForNextStep, nameState, task, tokenIndex);
+        tryNameMatching(candidateSubRuleIdsForNextStep, nameState, task, tokenIndex, subRuleContextGenerator);
 
         // Add more steps using our new set of candidate sub-rules.
         for (int i = tokenIndex; i < task.event.length; i += 2) {
@@ -106,15 +111,16 @@ class Finder {
         }
     }
 
-    private static void moveFromWithPriorCandidates(final Set<Double> candidateSubRuleIds,
+    private static void moveFromWithPriorCandidates(final Set<SubRuleContext> candidateSubRuleIds,
                                                     final NameState fromState, final Patterns fromPattern,
-                                                    final int tokenIndex, final Task task) {
-        Set<Double> candidateSubRuleIdsForNextStep = calculateCandidateSubRuleIdsForNextStep(candidateSubRuleIds,
+                                                    final int tokenIndex, final Task task,
+                                                    final SubRuleContext.Generator subRuleContextGenerator) {
+        Set<SubRuleContext> candidateSubRuleIdsForNextStep = calculateCandidateSubRuleIdsForNextStep(candidateSubRuleIds,
                 fromState, fromPattern);
 
         // If there are no more candidate sub-rules, there is no need to proceed further.
         if (candidateSubRuleIdsForNextStep != null && !candidateSubRuleIdsForNextStep.isEmpty()) {
-            moveFrom(candidateSubRuleIdsForNextStep, fromState, tokenIndex, task);
+            moveFrom(candidateSubRuleIdsForNextStep, fromState, tokenIndex, task, subRuleContextGenerator);
         }
 
     }
@@ -129,12 +135,12 @@ class Finder {
      * @return The set of candidate sub-rule IDs for the next step. Null means there are no candidates and thus, there
      *         is no point to evaluating subsequent steps.
      */
-    private static Set<Double> calculateCandidateSubRuleIdsForNextStep(final Set<Double> currentCandidateSubRuleIds,
+    private static Set<SubRuleContext> calculateCandidateSubRuleIdsForNextStep(final Set<SubRuleContext> currentCandidateSubRuleIds,
                                                                        final NameState fromState,
                                                                        final Patterns fromPattern) {
         // These are all the sub-rules that use the matched pattern to transition to the next NameState. Note that they
         // are not all candidates as they may have required different values for previously evaluated fields.
-        Set<Double> subRuleIds = fromState.getNonTerminalSubRuleIdsForPattern(fromPattern);
+        Set<SubRuleContext> subRuleIds = fromState.getNonTerminalSubRuleIdsForPattern(fromPattern);
 
         // If no sub-rules used the matched pattern to transition to the next NameState, then there are no matches to be
         // found by going further.
@@ -150,19 +156,20 @@ class Finder {
 
         // There are candidate sub-rules, so retain only those that used the matched pattern to transition to the next
         // NameState.
-        Set<Double> candidateSubRuleIdsForNextStep = new HashSet<>();
+        Set<SubRuleContext> candidateSubRuleIdsForNextStep = new HashSet<>();
         intersection(subRuleIds, currentCandidateSubRuleIds, candidateSubRuleIdsForNextStep);
         return candidateSubRuleIdsForNextStep;
     }
 
     // remove a step from the work queue and see if there's a transition
-    private static void tryStep(final Task task) {
+    private static void tryStep(final Task task, final SubRuleContext.Generator subRuleContextGenerator) {
         final Step step = task.nextStep();
 
-        tryValueMatching(task, step);
+        tryValueMatching(task, step, subRuleContextGenerator);
     }
 
-    private static void tryValueMatching(final Task task, Step step) {
+    private static void tryValueMatching(final Task task, final Step step,
+                                         final SubRuleContext.Generator subRuleContextGenerator) {
         if (step.keyIndex >= task.event.length) {
             return;
         }
@@ -181,30 +188,33 @@ class Finder {
             // loop through the value pattern matches
             for (NameStateWithPattern nextNameStateWithPattern : valueMatcher.transitionOn(task.event[step.keyIndex + 1])) {
                 addNameState(step.candidateSubRuleIds, nextNameStateWithPattern.getNameState(),
-                        nextNameStateWithPattern.getPattern(), task, nextKeyIndex);
+                        nextNameStateWithPattern.getPattern(), task, nextKeyIndex, subRuleContextGenerator);
             }
         }
     }
 
-    private static void tryNameMatching(final Set<Double> candidateSubRuleIds, final NameState nameState,
-                                        final Task task, int keyIndex) {
+    private static void tryNameMatching(final Set<SubRuleContext> candidateSubRuleIds, final NameState nameState,
+                                        final Task task, final int keyIndex,
+                                        final SubRuleContext.Generator subRuleContextGenerator) {
         if (!nameState.hasKeyTransitions()) {
             return;
         }
 
         for (NameState nextNameState : nameState.getNameTransitions(task.event)) {
             if (nextNameState != null) {
-                addNameState(candidateSubRuleIds, nextNameState, ABSENCE_PATTERN, task, keyIndex);
+                addNameState(candidateSubRuleIds, nextNameState, ABSENCE_PATTERN, task, keyIndex,
+                        subRuleContextGenerator);
             }
         }
     }
 
-    private static void addNameState(Set<Double> candidateSubRuleIds, NameState nameState, Patterns pattern, Task task,
-                                     int nextKeyIndex) {
+    private static void addNameState(Set<SubRuleContext> candidateSubRuleIds, NameState nameState, Patterns pattern, Task task,
+                                     int nextKeyIndex, final SubRuleContext.Generator subRuleContextGenerator) {
         // one of the matches might imply a rule match
-        task.collectRules(candidateSubRuleIds, nameState, pattern);
+        task.collectRules(candidateSubRuleIds, nameState, pattern, subRuleContextGenerator);
 
-        moveFromWithPriorCandidates(candidateSubRuleIds, nameState, pattern, nextKeyIndex, task);
+        moveFromWithPriorCandidates(candidateSubRuleIds, nameState, pattern, nextKeyIndex, task,
+                subRuleContextGenerator);
     }
 }
 

@@ -112,6 +112,21 @@ public class RulerTest {
                         "}",
                 "{\n" +
                         "  \"detail\": {\n" +
+                        "    \"state\": [ { \"prefix\": { \"equals-ignore-case\": \"RuNn\" } } ]\n" +
+                        "  }\n" +
+                        "}",
+                "{\n" +
+                        "  \"detail\": {\n" +
+                        "    \"state\": [ { \"suffix\": \"ning\" } ]\n" +
+                        "  }\n" +
+                        "}",
+                "{\n" +
+                        "  \"detail\": {\n" +
+                        "    \"state\": [ { \"suffix\": { \"equals-ignore-case\": \"nInG\" } } ]\n" +
+                        "  }\n" +
+                        "}",
+                "{\n" +
+                        "  \"detail\": {\n" +
                         "    \"source-ip\": [ { \"cidr\": \"10.0.0.0/24\" } ]\n" +
                         "  }\n" +
                         "}",
@@ -149,6 +164,21 @@ public class RulerTest {
                         "      \"Thumbnail\": {\n" +
                         "        \"Url\": [ { \"prefix\": \"http\" } ]\n" +
                         "      }\n" +
+                        "    }\n" +
+                        "  }",
+                "  {\n" +
+                        "    \"Image\": {\n" +
+                        "      \"Title\": [ { \"prefix\": { \"equals-ignore-case\": \"VIeW\" } } ]\n" +
+                        "    }\n" +
+                        "  }",
+                "  {\n" +
+                        "    \"Image\": {\n" +
+                        "      \"Title\": [ { \"suffix\": { \"equals-ignore-case\": \"LoOr\" } } ]\n" +
+                        "    }\n" +
+                        "  }",
+                "  {\n" +
+                        "    \"Image\": {\n" +
+                        "      \"Title\": [ { \"suffix\": \"loor\" } ]\n" +
                         "    }\n" +
                         "  }",
                 "  {\n" +
@@ -219,14 +249,18 @@ public class RulerTest {
     @Test
     public void WHEN_CompareIsPassedComparableNumbers_THEN_ItOrdersThemCorrectly() {
         double[] data = {
-                -Constants.FIVE_BILLION, -999999999.99999, -999999999.99, -10000, -0.000002,
-                0, 0.000001, 3.8, 3.9, 11, 12, 2.5e4, 999999999.999998, 999999999.999999, Constants.FIVE_BILLION
+                -5E11, -499_999_999_999.99999, -499_999_999_999.99998, -499_999_999_999.99997,
+                -5_000_000_000.0, -4_999_999_999.99999, -4_999_999_999.99998, -4_999_999_999.99997,
+                -999999999.99999, -999999999.99, -10000, -122.413496, -0.000002,
+                0, 0.000001, 3.8, 3.9, 11, 12, 122.415028, 2.5e4, 999999999.999998, 999999999.999999,
+                4_999_999_999.99997, 4_999_999_999.99998, 4_999_999_999.99999, 5_000_000_000.0,
+                499_999_999_999.99997, 499_999_999_999.99998, 499_999_999_999.99999, 5E11
         };
         for (double d1 : data) {
             for (double d2 : data) {
 
-                byte[] s0 = ComparableNumber.generate(d1).getBytes(StandardCharsets.UTF_8);
-                byte[] s1 = ComparableNumber.generate(d2).getBytes(StandardCharsets.UTF_8);
+                byte[] s0 = ComparableNumber.generate(Double.toString(d1)).getBytes(StandardCharsets.UTF_8);
+                byte[] s1 = ComparableNumber.generate(Double.toString(d2)).getBytes(StandardCharsets.UTF_8);
                 if (d1 < d2) {
                     assertTrue(Ruler.compare(s0, s1) < 0);
                 } else if (d1 == d2) {

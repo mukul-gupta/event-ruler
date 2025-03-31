@@ -1,5 +1,12 @@
 package software.amazon.event.ruler;
 
+import com.fasterxml.jackson.core.JsonFactory;
+import com.fasterxml.jackson.core.JsonParseException;
+import com.fasterxml.jackson.core.JsonParser;
+import com.fasterxml.jackson.core.JsonToken;
+import com.fasterxml.jackson.core.StreamReadFeature;
+import software.amazon.event.ruler.input.ParseException;
+
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.Reader;
@@ -12,10 +19,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
-import com.fasterxml.jackson.core.JsonFactory;
-import com.fasterxml.jackson.core.JsonParseException;
-import com.fasterxml.jackson.core.JsonParser;
-import com.fasterxml.jackson.core.JsonToken;
+import static software.amazon.event.ruler.input.DefaultParser.getParser;
 
 /**
  * Compiles Rules, expressed in JSON, for use in Ruler.
@@ -30,7 +34,9 @@ import com.fasterxml.jackson.core.JsonToken;
  */
 public final class RuleCompiler {
 
-    private static final JsonFactory JSON_FACTORY = new JsonFactory();
+    private static final JsonFactory JSON_FACTORY = JsonFactory.builder()
+            .configure(StreamReadFeature.INCLUDE_SOURCE_IN_LOCATION, true)
+            .build();
 
     private RuleCompiler() {
       throw new UnsupportedOperationException("You can't create instance of utility class.");
@@ -214,7 +220,7 @@ public final class RuleCompiler {
                  *  so make that condition survivable.
                  */
                 try {
-                    values.add(Patterns.numericEquals(parser.getDoubleValue()));
+                    values.add(Patterns.numericEquals(parser.getText()));
                 } catch (Exception e) {
                     // no-op
                 }
@@ -260,6 +266,10 @@ public final class RuleCompiler {
             return pattern;
         } else if (Constants.PREFIX_MATCH.equals(matchTypeName)) {
             final JsonToken prefixToken = parser.nextToken();
+            if (prefixToken == JsonToken.START_OBJECT) {
+                return processPrefixEqualsIgnoreCaseExpression(parser);
+            }
+
             if (prefixToken != JsonToken.VALUE_STRING) {
                 barf(parser, "prefix match pattern must be a string");
             }
@@ -270,6 +280,10 @@ public final class RuleCompiler {
             return pattern;
         } else if (Constants.SUFFIX_MATCH.equals(matchTypeName)) {
             final JsonToken suffixToken = parser.nextToken();
+            if (suffixToken == JsonToken.START_OBJECT) {
+                return processSuffixEqualsIgnoreCaseExpression(parser);
+            }
+
             if (suffixToken != JsonToken.VALUE_STRING) {
                 barf(parser, "suffix match pattern must be a string");
             }
@@ -393,7 +407,13 @@ public final class RuleCompiler {
                 barf(parser, "wildcard match pattern must be a string");
             }
             final String parserText = parser.getText();
-            final Patterns pattern = Patterns.wildcardMatch('"' + parserText + '"');
+            String value = '"' + parserText + '"';
+            try {
+                getParser().parse(MatchType.WILDCARD, value);
+            } catch (ParseException e) {
+                barf(parser, e.getLocalizedMessage());
+            }
+            final Patterns pattern = Patterns.wildcardMatch(value);
             if (parser.nextToken() != JsonToken.END_OBJECT) {
                 barf(parser, "Only one key allowed in match expression");
             }
@@ -402,6 +422,56 @@ public final class RuleCompiler {
             barf(parser, "Unrecognized match type " + matchTypeName);
             return null; // unreachable statement, but java can't see that?
         }
+    }
+
+    private static Patterns processPrefixEqualsIgnoreCaseExpression(final JsonParser parser) throws IOException {
+        final JsonToken prefixObject = parser.nextToken();
+        if (prefixObject != JsonToken.FIELD_NAME) {
+            barf(parser, "Prefix expression name not found");
+        }
+
+        final String prefixObjectOp = parser.getCurrentName();
+        if (!Constants.EQUALS_IGNORE_CASE.equals(prefixObjectOp)) {
+            barf(parser, "Unsupported prefix pattern: " + prefixObjectOp);
+        }
+
+        final JsonToken prefixEqualsIgnoreCase = parser.nextToken();
+        if (prefixEqualsIgnoreCase != JsonToken.VALUE_STRING) {
+            barf(parser, "equals-ignore-case match pattern must be a string");
+        }
+        final Patterns pattern = Patterns.prefixEqualsIgnoreCaseMatch('"' + parser.getText());
+        if (parser.nextToken() != JsonToken.END_OBJECT) {
+            barf(parser, "Only one key allowed in match expression");
+        }
+        if (parser.nextToken() != JsonToken.END_OBJECT) {
+            barf(parser, "Only one key allowed in match expression");
+        }
+        return pattern;
+    }
+
+    private static Patterns processSuffixEqualsIgnoreCaseExpression(final JsonParser parser) throws IOException {
+        final JsonToken suffixObject = parser.nextToken();
+        if (suffixObject != JsonToken.FIELD_NAME) {
+            barf(parser, "Suffix expression name not found");
+        }
+
+        final String suffixObjectOp = parser.getCurrentName();
+        if (!Constants.EQUALS_IGNORE_CASE.equals(suffixObjectOp)) {
+            barf(parser, "Unsupported suffix pattern: " + suffixObjectOp);
+        }
+
+        final JsonToken suffixEqualsIgnoreCase = parser.nextToken();
+        if (suffixEqualsIgnoreCase != JsonToken.VALUE_STRING) {
+            barf(parser, "equals-ignore-case match pattern must be a string");
+        }
+        final Patterns pattern = Patterns.suffixEqualsIgnoreCaseMatch(parser.getText() + '"');
+        if (parser.nextToken() != JsonToken.END_OBJECT) {
+            barf(parser, "Only one key allowed in match expression");
+        }
+        if (parser.nextToken() != JsonToken.END_OBJECT) {
+            barf(parser, "Only one key allowed in match expression");
+        }
+        return pattern;
     }
 
     private static Patterns processAnythingButListMatchExpression(JsonParser parser) throws JsonParseException {
@@ -418,7 +488,7 @@ public final class RuleCompiler {
                         break;
                     case VALUE_NUMBER_FLOAT:
                     case VALUE_NUMBER_INT:
-                        values.add(ComparableNumber.generate(parser.getDoubleValue()));
+                        values.add(ComparableNumber.generate(parser.getText()));
                         hasNumber = true;
                         break;
                     default:
@@ -454,7 +524,7 @@ public final class RuleCompiler {
             barf(parser, e.getMessage());
         }
 
-        return AnythingButEqualsIgnoreCase.anythingButIgnoreCaseMatch(values);
+        return AnythingButValuesSet.anythingButIgnoreCaseMatch(values);
     }
 
 
@@ -468,7 +538,7 @@ public final class RuleCompiler {
                 break;
             case VALUE_NUMBER_FLOAT:
             case VALUE_NUMBER_INT:
-                values.add(ComparableNumber.generate(parser.getDoubleValue()));
+                values.add(ComparableNumber.generate(parser.getText()));
                 hasNumber = true;
                 break;
             default:
@@ -487,7 +557,7 @@ public final class RuleCompiler {
             default:
                 barf(parser, "Inside anything-but/ignore-case list, number|start|null|boolean is not supported.");
         }
-        return AnythingButEqualsIgnoreCase.anythingButIgnoreCaseMatch(values);
+        return AnythingButValuesSet.anythingButIgnoreCaseMatch(values);
     }
 
     private static Patterns processNumericMatchExpression(final JsonParser parser) throws IOException {
@@ -502,7 +572,7 @@ public final class RuleCompiler {
                 if (!token.isNumeric()) {
                     barf(parser, "Value of equals must be numeric");
                 }
-                final double val = parser.getDoubleValue();
+                final String val = parser.getText();
                 if (parser.nextToken() != JsonToken.END_ARRAY) {
                     tooManyElements(parser);
                 }
@@ -511,7 +581,7 @@ public final class RuleCompiler {
                 if (!token.isNumeric()) {
                     barf(parser, "Value of >= must be numeric");
                 }
-                final double val = parser.getDoubleValue();
+                final String val = parser.getText();
                 token = parser.nextToken();
                 if (token == JsonToken.END_ARRAY) {
                     return Range.greaterThanOrEqualTo(val);
@@ -522,7 +592,7 @@ public final class RuleCompiler {
                 if (!token.isNumeric()) {
                     barf(parser, "Value of > must be numeric");
                 }
-                final double val = parser.getDoubleValue();
+                final String val = parser.getText();
                 token = parser.nextToken();
                 if (token == JsonToken.END_ARRAY) {
                     return Range.greaterThan(val);
@@ -533,7 +603,7 @@ public final class RuleCompiler {
                 if (!token.isNumeric()) {
                     barf(parser, "Value of <= must be numeric");
                 }
-                final double top = parser.getDoubleValue();
+                final String top = parser.getText();
                 if (parser.nextToken() != JsonToken.END_ARRAY) {
                     tooManyElements(parser);
                 }
@@ -543,7 +613,7 @@ public final class RuleCompiler {
                 if (!token.isNumeric()) {
                     barf(parser, "Value of < must be numeric");
                 }
-                final double top = parser.getDoubleValue();
+                final String top = parser.getText();
                 if (parser.nextToken() != JsonToken.END_ARRAY) {
                     tooManyElements(parser);
                 }
@@ -559,7 +629,7 @@ public final class RuleCompiler {
 
     private static Patterns completeNumericRange(final JsonParser parser,
                                                  final JsonToken token,
-                                                 final double bottom,
+                                                 final String bottom,
                                                  final boolean openBottom) throws IOException {
         if (token != JsonToken.VALUE_STRING) {
             barf(parser, "Bad value in numeric range: " + parser.getText());
@@ -575,7 +645,7 @@ public final class RuleCompiler {
         if (!parser.nextToken().isNumeric()) {
             barf(parser, "Value of " + operator + " must be numeric");
         }
-        final double top = parser.getDoubleValue();
+        final String top = parser.getText();
         if (parser.nextToken() != JsonToken.END_ARRAY) {
             barf(parser, "Too many terms in numeric range expression");
         }
@@ -704,7 +774,7 @@ public final class RuleCompiler {
 
                     case VALUE_NUMBER_FLOAT:
                     case VALUE_NUMBER_INT:
-                        values.add(Patterns.numericEquals(parser.getDoubleValue()));
+                        values.add(Patterns.numericEquals(parser.getText()));
                         values.add(Patterns.exactMatch(parser.getText()));
                         break;
 

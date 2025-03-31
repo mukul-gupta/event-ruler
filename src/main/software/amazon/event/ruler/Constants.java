@@ -29,17 +29,25 @@ final class Constants {
   final static String GT = ">";
   final static String GE = ">=";
 
-  // Use scientific notation to define the double number directly to avoid losing Precision by calculation
-  // for example 5000 * 1000 *1000 will be wrongly parsed as 7.05032704E8 by computer.
-  final static double FIVE_BILLION = 5E9;
-
   final static Pattern IPv4_REGEX = Pattern.compile("[0-9]+\\.[0-9]+\\.[0-9]+\\.[0-9]+");
   final static Pattern IPv6_REGEX = Pattern.compile("[0-9a-fA-F:]*:[0-9a-fA-F:]*");
   final static byte[] HEX_DIGITS = {
       '0', '1', '2', '3', '4', '5', '6', '7', '8', '9',
       'A', 'B', 'C', 'D', 'E', 'F'
   };
-  final static byte MAX_DIGIT = 'F';
+  final static byte MAX_HEX_DIGIT = HEX_DIGITS[HEX_DIGITS.length - 1]; // F
+  final static byte MIN_HEX_DIGIT = HEX_DIGITS[0]; // 0
+
+  static final byte[] BASE128_DIGITS = new byte[128];
+
+  static {
+    for (int i = 0; i < BASE128_DIGITS.length; i++) {
+      BASE128_DIGITS[i] = (byte) i;
+    }
+  }
+
+  final static byte MAX_NUM_DIGIT = BASE128_DIGITS[BASE128_DIGITS.length - 1];
+  final static byte MIN_NUM_DIGIT = BASE128_DIGITS[0];
 
   final static List<String> RESERVED_FIELD_NAMES_IN_OR_RELATIONSHIP = Arrays.asList(
       EXACT_MATCH,

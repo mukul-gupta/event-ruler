@@ -3,6 +3,7 @@ package software.amazon.event.ruler;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 /**
  * The Patterns deal pre-processing of rules for the eventual matching against events.
@@ -45,15 +46,29 @@ public class Patterns implements Cloneable  {
         return new ValuePatterns(MatchType.PREFIX, prefix);
     }
 
+    public static ValuePatterns prefixEqualsIgnoreCaseMatch(final String prefix) {
+        return new ValuePatterns(MatchType.PREFIX_EQUALS_IGNORE_CASE, prefix);
+    }
+
     public static ValuePatterns suffixMatch(final String suffix) {
         return new ValuePatterns(MatchType.SUFFIX, new StringBuilder(suffix).reverse().toString());
+    }
+
+    public static ValuePatterns suffixEqualsIgnoreCaseMatch(final String suffix) {
+        return new ValuePatterns(MatchType.SUFFIX_EQUALS_IGNORE_CASE, new StringBuilder(suffix).reverse().toString());
     }
 
     public static AnythingBut anythingButMatch(final String anythingBut) {
         return new AnythingBut(Collections.singleton(anythingBut), false);
     }
 
+    /** use anythingButMatch(String) instead */
+    @Deprecated
     public static AnythingBut anythingButMatch(final double anythingBut) {
+        return anythingButNumberMatch(Double.toString(anythingBut));
+    }
+
+    public static AnythingBut anythingButNumberMatch(final String anythingBut) {
         return new AnythingBut(Collections.singleton(ComparableNumber.generate(anythingBut)), true);
     }
 
@@ -61,31 +76,62 @@ public class Patterns implements Cloneable  {
         return new AnythingBut(anythingButs, false);
     }
 
-    public static AnythingButEqualsIgnoreCase anythingButIgnoreCaseMatch(final String anythingBut) {
-        return new AnythingButEqualsIgnoreCase(Collections.singleton(anythingBut));
+    public static AnythingButValuesSet anythingButIgnoreCaseMatch(final String anythingBut) {
+        return new AnythingButValuesSet(MatchType.ANYTHING_BUT_IGNORE_CASE, Collections.singleton(anythingBut));
     }
 
-    public static AnythingButEqualsIgnoreCase anythingButIgnoreCaseMatch(final Set<String> anythingButs) {
-        return new AnythingButEqualsIgnoreCase(anythingButs);
+    public static AnythingButValuesSet anythingButIgnoreCaseMatch(final Set<String> anythingButs) {
+        return new AnythingButValuesSet(MatchType.ANYTHING_BUT_IGNORE_CASE, anythingButs);
     }
 
+    /** Use anythingButNumbersMatch(Set<String>) that accepts String */
+    @Deprecated
     public static AnythingBut anythingButNumberMatch(final Set<Double> anythingButs) {
+        final Set<String> anyButsAsStrings = anythingButs.stream().map(d -> Double.toString(d)).collect(Collectors.toSet());
+        return anythingButNumbersMatch(anyButsAsStrings);
+    }
+
+    public static AnythingBut anythingButNumbersMatch(final Set<String> anythingButs) {
         Set<String> normalizedNumbers = new HashSet<>(anythingButs.size());
-        for (Double d : anythingButs) {
+        for (String d : anythingButs) {
             normalizedNumbers.add(ComparableNumber.generate(d));
         }
         return new AnythingBut(normalizedNumbers, true);
     }
 
-    public static ValuePatterns anythingButPrefix(final String prefix) {
-        return new ValuePatterns(MatchType.ANYTHING_BUT_PREFIX, prefix);
+    public static AnythingButValuesSet anythingButPrefix(final String prefix) {
+        return new AnythingButValuesSet(MatchType.ANYTHING_BUT_PREFIX, Collections.singleton(prefix));
     }
 
-    public static ValuePatterns anythingButSuffix(final String suffix) {
-        return new ValuePatterns(MatchType.ANYTHING_BUT_SUFFIX, new StringBuilder(suffix).reverse().toString());
+    public static AnythingButValuesSet anythingButPrefix(final Set<String> anythingButs) {
+        return new AnythingButValuesSet(MatchType.ANYTHING_BUT_PREFIX, anythingButs);
     }
 
+    public static AnythingButValuesSet anythingButSuffix(final String suffix) {
+        return new AnythingButValuesSet(MatchType.ANYTHING_BUT_SUFFIX,
+                Collections.singleton(new StringBuilder(suffix).reverse().toString()));
+    }
+
+    public static AnythingButValuesSet anythingButSuffix(final Set<String> anythingButs) {
+        return new AnythingButValuesSet(MatchType.ANYTHING_BUT_SUFFIX,
+                anythingButs.stream().map(s -> new StringBuilder(s).reverse().toString()).collect(Collectors.toSet()));
+    }
+
+    public static AnythingButValuesSet anythingButWildcard(final String value) {
+        return new AnythingButValuesSet(MatchType.ANYTHING_BUT_WILDCARD, Collections.singleton(value));
+    }
+
+    public static AnythingButValuesSet anythingButWildcard(final Set<String> anythingButs) {
+        return new AnythingButValuesSet(MatchType.ANYTHING_BUT_WILDCARD, anythingButs);
+    }
+
+    /** Use the other numericEquals(String) instead */
+    @Deprecated
     public static ValuePatterns numericEquals(final double val) {
+        return numericEquals(Double.toString(val));
+    }
+
+    public static ValuePatterns numericEquals(final String val) {
         return new ValuePatterns(MatchType.NUMERIC_EQ, ComparableNumber.generate(val));
     }
 
